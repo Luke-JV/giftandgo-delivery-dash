@@ -96,13 +96,21 @@ rewards: no real loyalty balance or coupon-store API is called.
 
 ## Leaderboard
 
-Runs of 20m or more can be submitted with a 2–16 character nickname once the run ends. The
-start and game-over screens show the top five by distance. Scores live in Supabase
-(`scores` table, read-only to the public via RLS) and are written only through the
-`submit_score` function, which rejects distances, gift counts and points that are impossible
-for the run's duration. Project URL and the public anon key are constants at the top of
-`delivery-dash.leaderboard.ts`. If the network call fails the game still works. Remove
-unwanted entries in the Supabase table editor.
+The start, pause and game-over screens have a **Leaderboard** button that opens the top ten
+(your own entry is highlighted and scrolled into view). Runs of 20m or more can be submitted
+from the game-over screen with a 2–16 character nickname; after submitting, the board opens
+with your rank. Scores live in Supabase (`scores` table, read-only to the public via RLS) and
+are written only through the `submit_score` function, which rejects profanity and
+distances, gift counts and points that are impossible for the run's duration. Project URL and
+the public anon key are constants at the top of `delivery-dash.leaderboard.ts`; run
+`supabase/profanity-filter.sql` to install the server-side checks. If the network call
+fails the game still works. Remove unwanted entries in the Supabase table editor.
+
+## Interface
+
+During a run only two pills (distance and gift points) sit over the road, with short chips for
+active boosts, plus pause and fullscreen in the header and ← BOOST → underneath. Controls help,
+best distance and the leaderboard live on the start screen.
 
 ## Fullscreen
 
