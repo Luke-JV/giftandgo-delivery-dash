@@ -3,12 +3,12 @@
 Three-lane pixel art driving game using the Gift&Go navy and orange palette.
 An elevated rear view shows your original Gift&Go logo on the cargo doors.
 Steer around detailed cones, barricades, traffic drums and potholes. Collect gift boxes
-to earn gift points, redeem coupons for boosts, and keep the delivery going. The
+to earn gift points, spend them at roadside shops, and grab the rare golden coupon for a free boost. The
 scenery reuses the original loading animation’s trees, layered hills and clouds.
 
 ## Use in Angular
 
-Copy the six files in `src/` into `src/app/shared/delivery-dash/`.
+Copy the seven files in `src/` into `src/app/shared/delivery-dash/`.
 Import the standalone `DeliveryDashComponent` in your page's `imports`.
 
 ```ts
@@ -63,22 +63,38 @@ posts. The first crossing is around 24–36 seconds of active driving, then retu
 in later route cycles. Trees and verge details stop at the river banks. Bridges
 retain all three lanes and do not add invisible collision boundaries.
 
-## Gift points and coupons
+## Gift points, coupons and shops
 
-Each collected gift earns **10 gift points**. Every **100 gift points** grants a
-coupon: the run pauses with **Coupon acquired** and **Pick your gift**.
+Each collected gift earns **10 gift points**. Gift points are a balance you spend at roadside shops.
 
-- **Delivery shield:** absorbs one collision. Hold up to three; brief protection
-  after a hit prevents one obstacle row consuming several shields.
-- **Gift magnet:** collects gifts from your lane and adjacent lanes for 25 seconds.
-- **Double gift points:** gifts award 20 points for 25 seconds.
+**Golden coupons** are rare (roughly every 30–50 seconds of driving). A coupon sits in a lane
+beside the guaranteed gift lane, so you choose between the safe gift and the coupon. Collecting
+it pauses the run with a **COUPON** menu offering three different boosts from a pool of eight,
+each labelled "Redeem …". An offer avoids repeating the previous coupon's set.
 
-Timed rewards can be extended by choosing them again. Their timers, the road,
-and acceleration all freeze while choosing a reward or pausing. Redeeming a
-coupon grants 0.4 seconds of protection while the player returns to the road.
-Gift points are earned, not spent, when redeeming these milestone coupons.
-Run gift points, gifts, coupons and boosts reset when starting a new run.
-These are game-only rewards: no real loyalty balance or coupon-store API is called.
+| Boost | Effect |
+| --- | --- |
+| Shield | Absorbs one collision; hold up to three |
+| Magnet | Collects gifts from neighbouring lanes for 25s |
+| Double Points | Gifts are worth 20 points for 25s |
+| Jackpot | Gifts are worth 50 points for 10s |
+| Ghost Truck | Drive straight through hazards for 7s |
+| Road Sweeper | Instantly clears every hazard ahead |
+| Gift Shower | Instantly bank 100 gift points |
+| Mystery Box | A random boost from the others |
+
+**Roadside shops** appear every 45–70 seconds on the left or right verge, marked by an overhead
+SHOP sign and an orange bay on the road. Be in that lane as you pass and the run pauses at the
+shop, where you can buy Shield (100), Magnet (150), Ghost Truck (200) and Road Sweeper (250)
+with gift points. Shop rows have no hazards. Missing the lane means missing the shop.
+Run gift points, boosts and timers reset when starting a new run. These are game-only
+rewards: no real loyalty balance or coupon-store API is called.
+
+## Fullscreen
+
+The expand button in the header fills the screen. It uses the Fullscreen API where available
+and falls back to a fixed full-viewport layout (for example on iPhone Safari). Escape or the
+same button exits.
 
 ## Difficulty and fairness
 
@@ -124,6 +140,6 @@ since their movement is necessary to play. The game has no audio.
 
 ## Preview and validation
 
-Open `preview.html` directly in a browser. It embeds the same game source and
+Open `index.html` (or `preview.html`, an identical copy) directly in a browser. Run `TYPESCRIPT_PATH=<node_modules dir> node scripts/build-preview.mjs` to regenerate both from `src/`. It embeds the same game source and
 assets as the component, with no server or installation required.
 See `VALIDATION.md` for compilation, gameplay and browser checks.
