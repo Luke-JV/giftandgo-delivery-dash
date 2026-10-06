@@ -44,6 +44,10 @@ success/error handling determine when the loading area is removed.
 - Start using the **Start driving** button.
 - Arrow Left/Right or A/D changes one lane per key press.
 - The arrow buttons also work with mouse, touch, or keyboard.
+- Hold ↑ or W (or the **BOOST** button on touch) to go 1.6× faster. The nitro meter drains in about
+  3 seconds and recharges in about 8; once empty it must refill to 25% before it can be used again.
+  Boosting raises distance quickly but gives rows less time to arrive, so steer carefully. On touch,
+  hold BOOST with one thumb and steer with the arrows or by swiping with the other.
 - On the road, tap its left or right half to change one lane, or swipe horizontally.
 - **Pause**, P, or Escape freezes the game; **Resume drive** continues it.
 - After a collision, **Drive again** resets the run.

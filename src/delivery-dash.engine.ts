@@ -52,7 +52,14 @@ export class DeliveryDashEngine {
   // Continuous time-based acceleration: 86 at the start, 230 after one minute.
   // No speed ceiling; pause time does not count toward difficulty.
   get speed(): number { return 86 + 2.4 * this.elapsed; }
-  get pace(): number { return this.speed / 86; }
+  boostHeld = false;
+  boostMeter = 1;
+  boostLevel = 0;
+  private boostLocked = false;
+  static readonly BOOST_FACTOR = 1.6;
+  get boostActive(): boolean { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
+  private get boostMultiplier(): number { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
+  get pace(): number { return this.speed * this.boostMultiplier / 86; }
   private travelAfter(seconds: number): number { return this.speed * seconds + 1.2 * seconds * seconds; }
   get result(): RunResult { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent, duration: Math.round(this.elapsed * 100) / 100 }; }
 
@@ -63,6 +70,7 @@ export class DeliveryDashEngine {
     this.offer = []; this.previousOffer = []; this.lastRedeemed = null; this.sweepAt = -100;
     this.lastPickupAt = this.couponPickedAt = -100; this.nextCouponAt = 16; this.nextShopAt = 26; this.shopsVisited = 0;
     this.pattern = 'single'; this.slalomDirection = 1;
+    this.boostMeter = 1; this.boostLevel = 0; this.boostLocked = false;
     this.lane = this.lanePosition = this.safeLane = 1;
     this.entities = [];
     this.crashLane = null;
@@ -75,6 +83,10 @@ export class DeliveryDashEngine {
     if (this.state !== 'running') return;
     this.lane = Math.max(0, Math.min(2, this.lane + Math.sign(direction)));
   }
+
+  setBoost(held: boolean): void { this.boostHeld = held; }
+
+  get boostLockedOut(): boolean { return this.boostLocked; }
 
   pause(): void { if (this.state === 'running') this.state = 'paused'; }
   resume(): void { if (this.state === 'paused') this.state = 'running'; }
@@ -147,7 +159,13 @@ export class DeliveryDashEngine {
     if (this.state !== 'running' || !Number.isFinite(seconds) || seconds <= 0) return;
     // Catch-up is capped; a suspended browser must not skip through a collision.
     const dt = Math.min(seconds, 0.05);
-    const travel = this.travelAfter(dt);
+    // Boost drains a short nitro meter; once empty it must recharge before reuse.
+    const boosting = this.boostActive;
+    this.boostMeter = Math.max(0, Math.min(1, this.boostMeter + (boosting ? -dt / 3 : dt / 8)));
+    if (this.boostMeter <= 0) this.boostLocked = true;
+    else if (this.boostLocked && this.boostMeter >= 0.25) this.boostLocked = false;
+    this.boostLevel = Math.max(0, Math.min(1, this.boostLevel + (boosting ? 1 : -1) * dt * 6));
+    const travel = this.travelAfter(dt) * this.boostMultiplier;
     this.elapsed += dt;
     this.distance += travel;
     const fromLane = this.lanePosition, delta = this.lane - fromLane;

@@ -39,7 +39,13 @@
   </div>
   <footer class="dash-controls">
     <button class="dash-steer" type="button" data-action="left" aria-label="Move one lane left" disabled>←</button>
-    <div class="dash-help"><span>Steer with ← → or A / D</span><small>Tap either side or swipe on mobile</small></div>
+    <div class="dash-center">
+      <button class="dash-boost" type="button" data-action="boost" aria-label="Boost. Hold to go faster" disabled>
+        <span class="dash-boost-fill" data-boost-fill></span>
+        <span class="dash-boost-label" data-boost-label>BOOST</span>
+      </button>
+      <div class="dash-help"><span>← → or A / D steer · ↑ or W boost</span><small>Tap either side or swipe · hold BOOST</small></div>
+    </div>
     <button class="dash-steer" type="button" data-action="right" aria-label="Move one lane right" disabled>→</button>
   </footer>
   <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>

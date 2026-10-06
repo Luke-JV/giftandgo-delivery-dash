@@ -42,7 +42,13 @@
   </div>
   <footer class="dash-controls">
     <button class="dash-steer" type="button" data-action="left" aria-label="Move one lane left" disabled>←</button>
-    <div class="dash-help"><span>Steer with ← → or A / D</span><small>Tap either side or swipe on mobile</small></div>
+    <div class="dash-center">
+      <button class="dash-boost" type="button" data-action="boost" aria-label="Boost. Hold to go faster" disabled>
+        <span class="dash-boost-fill" data-boost-fill></span>
+        <span class="dash-boost-label" data-boost-label>BOOST</span>
+      </button>
+      <div class="dash-help"><span>← → or A / D steer · ↑ or W boost</span><small>Tap either side or swipe · hold BOOST</small></div>
+    </div>
     <button class="dash-steer" type="button" data-action="right" aria-label="Move one lane right" disabled>→</button>
   </footer>
   <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>
@@ -88,6 +94,7 @@
 .dash-controls { display: flex; align-items: center; gap: 10px; padding: 12px; }
 .dash-steer { flex-shrink: 0; width: 48px; min-height: 44px; border: 1px solid #41638A; border-radius: 7px; background: #123C68; color: #FFF; font-size: 22px !important; }
 .dash-steer:not(:disabled):active { background: #ED8B00; color: #002855; }
+.dash-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .dash-help { flex: 1; text-align: center; font-size: 12px; line-height: 1.5; }
 .dash-help small { display: block; font-size: 10px; color: #AEC3DC; }
 .dash-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -177,6 +184,14 @@
 .dash-submit input:focus-visible { outline: 3px solid #FFC35B; outline-offset: 0; }
 .dash-submit button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 7px; background: #002855; color: #FFF; font-weight: 700; font-size: 13px; }
 @media (max-width: 520px) { .dash-overlay { padding-top: 10px; } .dash-overlay h2 { margin: 4px 0; } .dash-overlay p { margin-bottom: 8px; } .dash-board li { padding: 2px 8px; } }
+.dash-boost { position: relative; overflow: hidden; min-height: 44px; padding: 0 10px; border: 1px solid #FFC35B; border-radius: 7px; background: #123C68; color: #FFF; font-weight: 800 !important; font-size: 14px !important; letter-spacing: 3px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.dash-boost-fill { position: absolute; inset: 0 auto 0 0; width: var(--boost-fill, 100%); background: linear-gradient(90deg, #ED8B00, #FFC35B); transition: width 0.1s linear; }
+.dash-boost-label { position: relative; text-shadow: 0 1px 2px #00285599; }
+.dash-boost[data-active="true"] { box-shadow: 0 0 0 3px #FFC35B88, 0 0 18px #ED8B00; }
+.dash-boost[data-locked="true"] .dash-boost-fill { background: #6B7C93; }
+.dash-boost[data-locked="true"] { border-color: #6B7C93; letter-spacing: 1.5px; font-size: 11px !important; }
+@media (max-width: 380px) { .dash-boost { letter-spacing: 2px; } }
+@media (orientation: landscape) and (max-height: 520px) { .dash-fullscreen .dash-center { flex-direction: row; justify-content: center; } .dash-fullscreen .dash-boost { width: 60%; } }
 
 </style>
 <script>
@@ -265,11 +280,18 @@ class DeliveryDashEngine {
         this.row = 0;
         this.nextId = 0;
         this.safeLane = 1;
+        this.boostHeld = false;
+        this.boostMeter = 1;
+        this.boostLevel = 0;
+        this.boostLocked = false;
     }
     // Continuous time-based acceleration: 86 at the start, 230 after one minute.
     // No speed ceiling; pause time does not count toward difficulty.
     get speed() { return 86 + 2.4 * this.elapsed; }
-    get pace() { return this.speed / 86; }
+    static { this.BOOST_FACTOR = 1.6; }
+    get boostActive() { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
+    get boostMultiplier() { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
+    get pace() { return this.speed * this.boostMultiplier / 86; }
     travelAfter(seconds) { return this.speed * seconds + 1.2 * seconds * seconds; }
     get result() { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent, duration: Math.round(this.elapsed * 100) / 100 }; }
     start() {
@@ -286,6 +308,9 @@ class DeliveryDashEngine {
         this.shopsVisited = 0;
         this.pattern = 'single';
         this.slalomDirection = 1;
+        this.boostMeter = 1;
+        this.boostLevel = 0;
+        this.boostLocked = false;
         this.lane = this.lanePosition = this.safeLane = 1;
         this.entities = [];
         this.crashLane = null;
@@ -298,6 +323,8 @@ class DeliveryDashEngine {
             return;
         this.lane = Math.max(0, Math.min(2, this.lane + Math.sign(direction)));
     }
+    setBoost(held) { this.boostHeld = held; }
+    get boostLockedOut() { return this.boostLocked; }
     pause() { if (this.state === 'running')
         this.state = 'paused'; }
     resume() { if (this.state === 'paused')
@@ -378,7 +405,15 @@ class DeliveryDashEngine {
             return;
         // Catch-up is capped; a suspended browser must not skip through a collision.
         const dt = Math.min(seconds, 0.05);
-        const travel = this.travelAfter(dt);
+        // Boost drains a short nitro meter; once empty it must recharge before reuse.
+        const boosting = this.boostActive;
+        this.boostMeter = Math.max(0, Math.min(1, this.boostMeter + (boosting ? -dt / 3 : dt / 8)));
+        if (this.boostMeter <= 0)
+            this.boostLocked = true;
+        else if (this.boostLocked && this.boostMeter >= 0.25)
+            this.boostLocked = false;
+        this.boostLevel = Math.max(0, Math.min(1, this.boostLevel + (boosting ? 1 : -1) * dt * 6));
+        const travel = this.travelAfter(dt) * this.boostMultiplier;
         this.elapsed += dt;
         this.distance += travel;
         const fromLane = this.lanePosition, delta = this.lane - fromLane;
@@ -645,6 +680,18 @@ class DeliveryDashGame {
             this.schedule();
         });
         listen(root, 'keydown', event => this.key(event));
+        listen(root, 'keyup', event => { if (['ArrowUp', 'w', 'W'].includes(event.key))
+            this.engine.setBoost(false); });
+        listen(win, 'blur', () => this.engine.setBoost(false));
+        const boostButton = this.find('[data-action="boost"]');
+        listen(boostButton, 'pointerdown', event => {
+            event.preventDefault();
+            boostButton.setPointerCapture(event.pointerId);
+            this.engine.setBoost(true);
+        });
+        for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+            listen(boostButton, type, () => this.engine.setBoost(false));
+        listen(boostButton, 'contextmenu', event => event.preventDefault());
         listen(this.canvas, 'pointerdown', event => this.pointerDown(event));
         listen(this.canvas, 'pointerup', event => this.pointerUp(event));
         listen(this.canvas, 'pointercancel', () => { this.swipeX = this.pointerId = null; });
@@ -785,6 +832,11 @@ class DeliveryDashGame {
         const target = e.target;
         if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA')
             return;
+        if (['ArrowUp', 'w', 'W'].includes(e.key)) {
+            e.preventDefault();
+            this.engine.setBoost(true);
+            return;
+        }
         if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
             e.preventDefault();
             if (!e.repeat)
@@ -797,7 +849,7 @@ class DeliveryDashGame {
         }
     }
     pointerDown(e) {
-        if (!e.isPrimary || this.engine.state !== 'running')
+        if (this.engine.state !== 'running')
             return;
         this.swipeX = e.clientX;
         this.swipeY = e.clientY;
@@ -820,6 +872,7 @@ class DeliveryDashGame {
     visibility() {
         if (this.root.ownerDocument.hidden || !this.onscreen || !this.hasWidth) {
             this.engine.pause();
+            this.engine.setBoost(false);
             this.lastTime = 0;
             if (this.frame)
                 this.win.cancelAnimationFrame(this.frame);
@@ -916,6 +969,12 @@ class DeliveryDashGame {
         const pause = this.find('[data-action="pause"]');
         pause.disabled = state === 'ready' || state === 'crashed' || state === 'reward' || state === 'shop';
         pause.textContent = state === 'paused' ? 'Resume' : 'Pause';
+        const boost = this.find('[data-action="boost"]');
+        boost.disabled = state !== 'running';
+        boost.dataset['active'] = String(this.engine.boostLevel > 0.3);
+        boost.dataset['locked'] = String(this.engine.boostLockedOut);
+        boost.style.setProperty('--boost-fill', `${Math.round(this.engine.boostMeter * 100)}%`);
+        this.find('[data-boost-label]').textContent = this.engine.boostLockedOut ? 'RECHARGING' : 'BOOST';
         this.find('[data-action="left"]').disabled = state !== 'running';
         this.find('[data-action="right"]').disabled = state !== 'running';
         const perks = [];
@@ -1223,6 +1282,7 @@ class DeliveryDashGame {
         this.bridgeRails(bridge.near, bridge.far);
         const objects = this.engine.entities.filter(e => !e.handled || e.kind !== 'gift').sort((a, b) => b.z - a.z);
         objects.filter(e => e.z >= 20).forEach(e => this.entity(e));
+        this.speedStreaks();
         this.drawTruck();
         objects.filter(e => e.z < 20).forEach(e => this.entity(e));
         const sweepAge = this.engine.elapsed - this.engine.sweepAt;
@@ -1237,6 +1297,20 @@ class DeliveryDashGame {
             c.fillStyle = 'rgba(237,139,0,0.13)';
             c.fillRect(0, 0, 240, 230);
         }
+    }
+    speedStreaks() {
+        const level = this.engine.boostLevel;
+        if (level < 0.05 || this.motion.matches)
+            return;
+        const phase = this.engine.distance * 0.012;
+        this.ctx.globalAlpha = 0.55 * level;
+        for (let i = 0; i < 18; i++) {
+            const progress = ((phase + i * 0.0617) % 1 + 1) % 1, side = i % 2 ? 1 : -1;
+            const spread = 0.35 + (i * 0.37 % 1) * 0.9;
+            const x = 120 + side * spread * progress * 160, y = 44 + progress * 200;
+            this.rect('#FFFFFF', x, y, 1 + progress, 3 + progress * 16 * level);
+        }
+        this.ctx.globalAlpha = 1;
     }
     tree(x, y, scale, variant) {
         const image = this.scenery['trees'];
@@ -1444,6 +1518,15 @@ class DeliveryDashGame {
         const ghost = e.ghostUntil > e.elapsed;
         const flicker = ghost && !this.motion.matches ? 0.45 + 0.15 * Math.sin(e.elapsed * 30) : ghost ? 0.5 : 1;
         this.ctx.globalAlpha = flicker;
+        if (e.boostLevel > 0.1) {
+            const flicker = 0.75 + 0.25 * Math.sin(e.elapsed * 60);
+            for (const x of [left + 7, left + width - 13]) {
+                const length = Math.round((6 + 12 * e.boostLevel) * flicker);
+                this.rect('#ED8B00', x, top + height - 2, 6, length);
+                this.rect('#FFE08A', x + 1, top + height - 2, 4, Math.round(length * 0.65));
+                this.rect('#FFFFFF', x + 2, top + height - 2, 2, Math.round(length * 0.35));
+            }
+        }
         this.ctx.drawImage(this.truck, left, top, width, height);
         this.ctx.globalAlpha = 1;
         this.logo.style.opacity = String(flicker);

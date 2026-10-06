@@ -32,7 +32,9 @@ declare
 begin
   if char_length(clean_name) < 2 or char_length(clean_name) > 16 then raise exception 'invalid name length'; end if;
   if not public.is_clean_name(clean_name) then raise exception 'name not allowed'; end if;
-  if p_distance > 86 * p_duration + 1.2 * p_duration * p_duration + 50 then
+  -- Max distance: unboosted curve plus the most extra distance the nitro meter allows.
+  if p_distance > 86 * p_duration + 1.2 * p_duration * p_duration
+     + 0.6 * (86 + 2.4 * p_duration) * (2.5 + 0.3 * p_duration) + 50 then
     raise exception 'implausible distance';
   end if;
   if p_gifts > p_duration / 0.8 + 3 or p_points > p_gifts * 50 + 100 * (p_duration / 30 + 1) then
@@ -50,3 +52,7 @@ grant execute on function public.submit_score to anon, authenticated;
 
 -- Optional: remove any existing entries that fail the filter.
 -- delete from public.scores where not public.is_clean_name(nickname);
+
+-- Boost lets very long runs exceed the original 200,000m cap.
+alter table public.scores drop constraint if exists scores_distance_check;
+alter table public.scores add constraint scores_distance_check check (distance between 0 and 2000000);

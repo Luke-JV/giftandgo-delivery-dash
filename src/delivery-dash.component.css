@@ -36,6 +36,7 @@
 .dash-controls { display: flex; align-items: center; gap: 10px; padding: 12px; }
 .dash-steer { flex-shrink: 0; width: 48px; min-height: 44px; border: 1px solid #41638A; border-radius: 7px; background: #123C68; color: #FFF; font-size: 22px !important; }
 .dash-steer:not(:disabled):active { background: #ED8B00; color: #002855; }
+.dash-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .dash-help { flex: 1; text-align: center; font-size: 12px; line-height: 1.5; }
 .dash-help small { display: block; font-size: 10px; color: #AEC3DC; }
 .dash-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -125,3 +126,11 @@
 .dash-submit input:focus-visible { outline: 3px solid #FFC35B; outline-offset: 0; }
 .dash-submit button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 7px; background: #002855; color: #FFF; font-weight: 700; font-size: 13px; }
 @media (max-width: 520px) { .dash-overlay { padding-top: 10px; } .dash-overlay h2 { margin: 4px 0; } .dash-overlay p { margin-bottom: 8px; } .dash-board li { padding: 2px 8px; } }
+.dash-boost { position: relative; overflow: hidden; min-height: 44px; padding: 0 10px; border: 1px solid #FFC35B; border-radius: 7px; background: #123C68; color: #FFF; font-weight: 800 !important; font-size: 14px !important; letter-spacing: 3px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.dash-boost-fill { position: absolute; inset: 0 auto 0 0; width: var(--boost-fill, 100%); background: linear-gradient(90deg, #ED8B00, #FFC35B); transition: width 0.1s linear; }
+.dash-boost-label { position: relative; text-shadow: 0 1px 2px #00285599; }
+.dash-boost[data-active="true"] { box-shadow: 0 0 0 3px #FFC35B88, 0 0 18px #ED8B00; }
+.dash-boost[data-locked="true"] .dash-boost-fill { background: #6B7C93; }
+.dash-boost[data-locked="true"] { border-color: #6B7C93; letter-spacing: 1.5px; font-size: 11px !important; }
+@media (max-width: 380px) { .dash-boost { letter-spacing: 2px; } }
+@media (orientation: landscape) and (max-height: 520px) { .dash-fullscreen .dash-center { flex-direction: row; justify-content: center; } .dash-fullscreen .dash-boost { width: 60%; } }
