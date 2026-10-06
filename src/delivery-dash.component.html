@@ -2,6 +2,9 @@
   <header class="dash-header">
     <img data-brand-logo width="88" height="21" alt="Gift&amp;Go" />
     <span class="dash-name">DELIVERY DASH<small>PACE <span data-speed>1.0×</span></small></span>
+    <button class="dash-icon-button" type="button" data-action="fullscreen" aria-label="Enter fullscreen" aria-pressed="false">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" data-fullscreen-icon><path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </button>
     <button class="dash-pause" type="button" data-action="pause" disabled>Pause</button>
   </header>
   <div class="dash-stats" aria-label="Run statistics">
@@ -11,7 +14,7 @@
   </div>
   <div class="dash-perks" data-perks hidden></div>
   <div class="dash-scene" data-scene>
-    <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts as the pace increases."></canvas>
+    <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts, and grab the rare golden coupon, as the pace increases."></canvas>
     <img class="dash-truck-logo" data-truck-logo alt="" aria-hidden="true" />
     <span class="dash-toast" data-toast hidden></span>
     <div class="dash-overlay" data-overlay>
@@ -20,11 +23,8 @@
         <h2 data-overlay-title>Special delivery.</h2>
         <p data-overlay-message>Dodge the roadworks. Collect the gifts.</p>
         <button class="dash-start" type="button" data-action="start" disabled>Start driving</button>
-        <div class="dash-rewards" data-rewards hidden>
-          <button type="button" data-reward="shield"><strong>Delivery shield</strong><span data-shield-description>Protects against one collision</span></button>
-          <button type="button" data-reward="magnet"><strong>Gift magnet</strong><span>Collect gifts from adjacent lanes · 25s</span></button>
-          <button type="button" data-reward="double"><strong>Double gift points</strong><span>Earn twice the gift points · 25s</span></button>
-        </div>
+        <div class="dash-rewards" data-rewards hidden></div>
+        <button class="dash-start" type="button" data-action="leave-shop" hidden>Back on the road</button>
       </div>
     </div>
   </div>

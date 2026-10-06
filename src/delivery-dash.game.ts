@@ -1,5 +1,6 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
-import { DeliveryDashEngine, GameState, GiftReward, RoadEntity, RunResult } from './delivery-dash.engine';
+import { DeliveryDashEngine, GameState, GiftReward, RoadEntity, RunResult, SHOP_ITEMS } from './delivery-dash.engine';
+import { REWARD_CATALOG } from './delivery-dash.rewards';
 
 type GameWindow = Window & typeof globalThis;
 
@@ -30,6 +31,11 @@ export class DeliveryDashGame {
   private hasWidth = true;
   private lastGiftPoints = 0;
   private toastUntil = 0;
+  private toastLocked = false;
+  private offerKey = '';
+  private shopNote = '';
+  private fullscreen = false;
+  private nativeFullscreen = false;
   private static readonly W = 240;
   private static readonly H = 230;
 
@@ -55,14 +61,23 @@ export class DeliveryDashGame {
     listen(this.find('[data-action="pause"]'), 'click', () => this.togglePause());
     listen(this.find('[data-action="left"]'), 'click', () => this.engine.steer(-1));
     listen(this.find('[data-action="right"]'), 'click', () => this.engine.steer(1));
-    for (const reward of ['shield', 'magnet', 'double'] as GiftReward[]) {
-      listen(this.find(`[data-reward="${reward}"]`), 'click', () => {
-        this.engine.chooseGift(reward); this.lastTime = 0;
-        this.syncUI();
-        this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
-        this.draw(); this.schedule();
-      });
-    }
+    listen(this.find('[data-action="fullscreen"]'), 'click', () => this.toggleFullscreen());
+    listen(root.ownerDocument, 'fullscreenchange', () => this.fullscreenChanged());
+    listen(this.find('[data-rewards]'), 'click', event => {
+      const button = (event.target as Element).closest<HTMLButtonElement>('[data-reward]');
+      const reward = button?.dataset['reward'] as GiftReward | undefined;
+      if (!reward || button?.disabled) return;
+      if (this.engine.state === 'shop') { this.buy(reward); return; }
+      this.engine.chooseGift(reward);
+      this.afterRedeem();
+      this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
+    });
+    listen(this.find('[data-action="leave-shop"]'), 'click', () => {
+      this.engine.leaveShop(); this.shopNote = '';
+      this.lastGiftPoints = this.engine.giftPoints; this.lastTime = 0;
+      this.syncUI(); this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
+      this.draw(); this.schedule();
+    });
     listen(root, 'keydown', event => this.key(event as KeyboardEvent));
     listen(this.canvas, 'pointerdown', event => this.pointerDown(event as PointerEvent));
     listen(this.canvas, 'pointerup', event => this.pointerUp(event as PointerEvent));
@@ -118,6 +133,62 @@ export class DeliveryDashGame {
     else if (this.engine.state === 'paused') this.engine.resume();
     else return;
     this.lastTime = 0; this.syncUI(); this.schedule();
+  }
+
+  private showToast(text: string): void {
+    this.find('[data-toast]').textContent = text;
+    this.toastUntil = this.engine.elapsed + 1.4;
+    this.toastLocked = true;
+  }
+
+  private afterRedeem(): void {
+    const applied = this.engine.lastRedeemed;
+    this.lastGiftPoints = this.engine.giftPoints;
+    this.lastTime = 0;
+    if (applied) this.showToast(REWARD_CATALOG[applied].toast);
+    this.syncUI(); this.draw(); this.schedule();
+  }
+
+  private buy(reward: GiftReward): void {
+    if (!this.engine.buy(reward)) return;
+    this.shopNote = `${REWARD_CATALOG[reward].toast}`;
+    this.afterRedeem();
+    const focused = this.root.ownerDocument.activeElement;
+    if (!(focused instanceof this.win.HTMLButtonElement) || focused.disabled) {
+      (this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
+    }
+  }
+
+  private toggleFullscreen(): void {
+    const doc = this.root.ownerDocument;
+    if (this.fullscreen) {
+      this.setFullscreen(false);
+      if (doc.fullscreenElement) void doc.exitFullscreen().catch(() => {});
+      return;
+    }
+    this.setFullscreen(true);
+    // iOS Safari has no element fullscreen; the fixed full-viewport layout covers it.
+    if (this.root.requestFullscreen) {
+      this.root.requestFullscreen({ navigationUI: 'hide' }).then(() => { this.nativeFullscreen = true; }).catch(() => {});
+    }
+  }
+
+  private setFullscreen(on: boolean): void {
+    this.fullscreen = on;
+    if (!on) this.nativeFullscreen = false;
+    this.root.classList.toggle('dash-fullscreen', on);
+    this.root.ownerDocument.documentElement.style.overflow = on ? 'hidden' : '';
+    const button = this.find<HTMLButtonElement>('[data-action="fullscreen"]');
+    button.setAttribute('aria-pressed', String(on));
+    button.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Enter fullscreen');
+    this.find('[data-fullscreen-icon] path').setAttribute('d', on
+      ? 'M5 1v4H1M11 1v4h4M15 11h-4v4M1 11h4v4'
+      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5');
+    this.resize();
+  }
+
+  private fullscreenChanged(): void {
+    if (this.nativeFullscreen && !this.root.ownerDocument.fullscreenElement) this.setFullscreen(false);
   }
 
   private key(e: KeyboardEvent): void {
@@ -180,13 +251,18 @@ export class DeliveryDashGame {
         this.best = Math.max(this.best, Math.floor(this.engine.distance));
         try { this.win.localStorage.setItem('giftgo-delivery-dash-best', String(this.best)); } catch {}
         this.onFinish(this.engine.result);
-        this.find('[data-live-status]').textContent = `Run finished. ${Math.floor(this.engine.distance)} metres, ${this.engine.giftPoints} gift points. Play again to restart.`;
+        this.find('[data-live-status]').textContent = `Run finished. ${Math.floor(this.engine.distance)} metres, ${this.engine.pointsEarned} gift points earned. Play again to restart.`;
         this.syncUI();
         this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
+      } else if ((this.engine.state as GameState) === 'shop') {
+        this.shopNote = '';
+        this.syncUI();
+        this.find('[data-live-status]').textContent = 'Roadside shop. Spend gift points on boosts. The game is paused while you shop.';
+        this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)')?.focus({ preventScroll: true });
       } else if ((this.engine.state as GameState) === 'reward') {
         this.syncUI();
-        this.find('[data-live-status]').textContent = 'Coupon acquired. Pick your gift. The game is paused while you choose.';
-        const first = this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)');
+        this.find('[data-live-status]').textContent = 'Coupon collected. Choose a boost to redeem. The game is paused while you choose.';
+        const first = this.root.querySelector<HTMLButtonElement>('[data-reward]');
         first?.focus({ preventScroll: true });
       }
     } else if (this.engine.state === 'ready' && !this.motion.matches) this.idleTime += dt * 18;
@@ -203,20 +279,20 @@ export class DeliveryDashGame {
     this.find('[data-best]').textContent = `${this.best}m`;
     this.find('[data-speed]').textContent = `${this.engine.pace.toFixed(1)}×`;
     this.find<HTMLElement>('[data-overlay]').hidden = state === 'running';
-    const title = state === 'reward' ? 'Pick your gift' : state === 'ready' ? 'Special delivery.' : state === 'paused' ? 'Taking a pit stop.' : 'End of the road.';
-    const message = state === 'reward' ? 'Redeem your coupon for a boost. Your drive is paused.' : state === 'ready' ? 'Collect gift points. Earn coupons. Keep the delivery going.' : state === 'paused' ? 'Your route is waiting. Resume when you’re ready.' : `${Math.floor(this.engine.distance)} metres · ${this.engine.giftPoints} gift points · ${this.engine.coupons} coupons redeemed`;
-    this.find('[data-eyebrow]').textContent = state === 'reward' ? 'Coupon acquired' : 'THE GIFT&GO ROAD TRIP';
-    this.find<HTMLElement>('[data-rewards]').hidden = state !== 'reward';
-    this.find<HTMLButtonElement>('[data-reward="shield"]').disabled = this.engine.shields >= 3;
-    this.find('[data-shield-description]').textContent = this.engine.shields >= 3 ? 'Three shields already equipped' : 'Protects against one collision';
+    const title = state === 'reward' ? 'COUPON' : state === 'shop' ? 'SHOP' : state === 'ready' ? 'Special delivery.' : state === 'paused' ? 'Taking a pit stop.' : 'End of the road.';
+    const message = state === 'shop' ? (this.shopNote || `${this.engine.giftPoints} gift points to spend. Pick up what you need.`) : state === 'reward' ? 'Choose a boost to redeem. Your drive is paused.' : state === 'ready' ? 'Collect gift points. Earn coupons. Keep the delivery going.' : state === 'paused' ? 'Your route is waiting. Resume when you’re ready.' : `${Math.floor(this.engine.distance)} metres · ${this.engine.pointsEarned} gift points earned · ${this.engine.coupons} coupons redeemed`;
+    this.find('[data-eyebrow]').textContent = state === 'reward' ? '★ GIFT&GO REWARD ★' : state === 'shop' ? 'GIFT&GO ROADSIDE STORE' : 'THE GIFT&GO ROAD TRIP';
+    this.find<HTMLElement>('[data-rewards]').hidden = state !== 'reward' && state !== 'shop';
+    this.find<HTMLElement>('[data-action="leave-shop"]').hidden = state !== 'shop';
+    this.renderOffer();
     this.find('[data-overlay-title]').textContent = title;
     this.find('[data-overlay-message]').textContent = message;
     const start = this.find<HTMLButtonElement>('[data-action="start"]');
     start.textContent = state === 'paused' ? 'Resume drive' : state === 'crashed' ? 'Drive again' : 'Start driving';
     start.disabled = !this.ready;
-    start.hidden = state === 'reward';
+    start.hidden = state === 'reward' || state === 'shop';
     const pause = this.find<HTMLButtonElement>('[data-action="pause"]');
-    pause.disabled = state === 'ready' || state === 'crashed' || state === 'reward';
+    pause.disabled = state === 'ready' || state === 'crashed' || state === 'reward' || state === 'shop';
     pause.textContent = state === 'paused' ? 'Resume' : 'Pause';
     this.find<HTMLButtonElement>('[data-action="left"]').disabled = state !== 'running';
     this.find<HTMLButtonElement>('[data-action="right"]').disabled = state !== 'running';
@@ -224,14 +300,44 @@ export class DeliveryDashGame {
     if (this.engine.shields) perks.push(`Shield ×${this.engine.shields}`);
     if (this.engine.magnetUntil > this.engine.elapsed) perks.push(`Magnet ${Math.ceil(this.engine.magnetUntil - this.engine.elapsed)}s`);
     if (this.engine.doubleUntil > this.engine.elapsed) perks.push(`2× points ${Math.ceil(this.engine.doubleUntil - this.engine.elapsed)}s`);
+    if (this.engine.jackpotUntil > this.engine.elapsed) perks.push(`Jackpot 5× ${Math.ceil(this.engine.jackpotUntil - this.engine.elapsed)}s`);
+    if (this.engine.ghostUntil > this.engine.elapsed) perks.push(`Ghost ${Math.ceil(this.engine.ghostUntil - this.engine.elapsed)}s`);
     const perkLine = this.find('[data-perks]');
     perkLine.textContent = perks.join(' · '); perkLine.hidden = !perks.length;
-    if (this.engine.giftPoints > this.lastGiftPoints) {
+    if (this.toastLocked && this.engine.elapsed >= this.toastUntil) this.toastLocked = false;
+    if (this.engine.giftPoints > this.lastGiftPoints && !this.toastLocked) {
       this.find('[data-toast]').textContent = `+${this.engine.giftPoints - this.lastGiftPoints} gift points`;
       this.toastUntil = this.engine.elapsed + 0.85;
     }
     this.lastGiftPoints = this.engine.giftPoints;
     this.find<HTMLElement>('[data-toast]').hidden = state !== 'running' || this.engine.elapsed >= this.toastUntil;
+  }
+
+  private renderOffer(): void {
+    const state = this.engine.state;
+    const key = state === 'reward' ? `reward:${this.engine.offer.join()}` : state === 'shop' ? 'shop' : '';
+    const container = this.find('[data-rewards]');
+    if (key !== this.offerKey) {
+      this.offerKey = key;
+      container.replaceChildren();
+      const doc = this.root.ownerDocument;
+      const entries = state === 'reward' ? this.engine.offer.map(reward => ({ reward, cost: 0 })) : state === 'shop' ? SHOP_ITEMS : [];
+      for (const { reward, cost } of entries) {
+        const definition = REWARD_CATALOG[reward];
+        const button = doc.createElement('button');
+        button.type = 'button'; button.dataset['reward'] = reward;
+        button.style.setProperty('--accent', definition.accent);
+        const label = cost ? definition.label.replace(/^Redeem/, 'Buy') : definition.label;
+        const price = cost ? `<em class="dash-reward-cost">${cost} pts</em>` : '';
+        button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${definition.icon}</svg><span class="dash-reward-text"><strong>${label}</strong><span>${definition.description}</span></span>${price}`;
+        container.appendChild(button);
+      }
+    }
+    if (state === 'shop') {
+      for (const button of container.querySelectorAll<HTMLButtonElement>('[data-reward]')) {
+        button.disabled = !this.engine.canAfford(button.dataset['reward'] as GiftReward);
+      }
+    }
   }
 
   private project(lateral: number, z: number): { x: number; y: number; scale: number } {
@@ -396,6 +502,11 @@ export class DeliveryDashGame {
     objects.filter(e => e.z >= 20).forEach(e => this.entity(e));
     this.drawTruck();
     objects.filter(e => e.z < 20).forEach(e => this.entity(e));
+    const sweepAge = this.engine.elapsed - this.engine.sweepAt;
+    if (sweepAge >= 0 && sweepAge < 0.5 && !this.motion.matches) {
+      c.globalAlpha = 0.35 * (1 - sweepAge / 0.5); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 240, 230);
+      c.globalAlpha = 1; this.rect('#FFE08A', 0, 230 - sweepAge * 440, 240, 3);
+    }
     if (this.engine.state === 'crashed') {
       c.fillStyle = 'rgba(237,139,0,0.13)'; c.fillRect(0, 0, 240, 230);
     }
@@ -410,7 +521,42 @@ export class DeliveryDashGame {
     this.ctx.drawImage(image, sx, 0, sw, 66, Math.round(x - width * scale / 2), Math.round(y - height * scale), Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
   }
 
+  private shopEntity(e: RoadEntity): void {
+    const c = this.ctx, side = e.lane === 0 ? -1 : 1, laneX = (e.lane - 1) * (260 / 3);
+    const pulse = this.motion.matches ? 0.8 : 0.7 + 0.2 * Math.sin(this.engine.elapsed * 6);
+    // Pull-in bay painted on the road in the shop's lane.
+    const corners = [[-37, 20], [37, 20], [37, -20], [-37, -20]].map(([dx, dz]) => this.project(laneX + dx, e.z + dz));
+    c.globalAlpha = pulse; this.polygon('#ED8B00', corners.map(p => [p.x, p.y])); c.globalAlpha = 1;
+    for (let i = 0; i < 4; i++) {
+      const z0 = e.z + 14 - i * 9, p0 = this.project(laneX - 37, z0), p1 = this.project(laneX + 37, z0), p2 = this.project(laneX, z0 - 6);
+      this.polygon('#FFF2D9', [[p0.x, p0.y], [p2.x, p2.y], [p1.x, p1.y], [p1.x, p1.y - 2 * p1.scale], [p2.x, p2.y - 3 * p2.scale], [p0.x, p0.y - 2 * p0.scale]]);
+    }
+    // The shop building stands on the verge beside the bay.
+    const b = this.project(side * 215, e.z + 6), s = b.scale;
+    const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, b.x + dx * s, b.y + dy * s, w * s, h * s);
+    r('#586F49', -44, -2, 88, 5);
+    r('#8C93A0', -40, -50, 80, 50); r('#F4F0DD', -38, -50, 76, 46); r('#D9D3BB', -38, -8, 76, 5);
+    this.polygon('#0A2A52', [[-46, -50], [46, -50], [38, -66], [-38, -66]].map(([dx, dy]) => [b.x + dx * s, b.y + dy * s]));
+    for (let i = 0; i < 8; i++) r(i % 2 ? '#FFF2D9' : '#ED8B00', -38 + i * 9.5, -50, 9.5, 11);
+    r('#0A2A52', -31, -36, 20, 19); r('#9FD0E6', -29, -34, 16, 15); r('#FFFFFF', -29, -34, 5, 15);
+    r('#0A2A52', 11, -36, 20, 19); r('#9FD0E6', 13, -34, 16, 15); r('#FFFFFF', 13, -34, 5, 15);
+    r('#0A2A52', -7, -29, 14, 29); r('#123C68', -5, -27, 10, 27); r('#FFC35B', 2, -14, 2, 2);
+    r('#ED8B00', -34, -12, 9, 9); r('#FFE49A', -34, -12, 9, 2); r('#ED8B00', 26, -9, 8, 6);
+    c.fillStyle = '#FFFFFF'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = `bold ${Math.max(4, Math.round(10 * s))}px system-ui, sans-serif`;
+    c.fillText('GIFT&GO', Math.round(b.x), Math.round(b.y - 58 * s));
+    // Overhead sign marks the lane to be in when passing.
+    const p = this.project(laneX, e.z), t = p.scale, bob = this.motion.matches ? 0 : Math.sin(this.engine.elapsed * 6) * 2;
+    this.rect('#2B3C4B', p.x - 31 * t, p.y - 78 * t, 3 * t, 78 * t); this.rect('#2B3C4B', p.x + 28 * t, p.y - 78 * t, 3 * t, 78 * t);
+    this.rect('#ED8B00', p.x - 35 * t, p.y - 104 * t, 70 * t, 30 * t); this.rect('#0A2A52', p.x - 33 * t, p.y - 102 * t, 66 * t, 26 * t);
+    c.fillStyle = '#FFFFFF'; c.font = `bold ${Math.max(4, Math.round(15 * t))}px system-ui, sans-serif`;
+    c.fillText('SHOP', Math.round(p.x), Math.round(p.y - 89 * t));
+    this.polygon('#FFC35B', [[p.x - 9 * t, p.y - 68 * t + bob], [p.x + 9 * t, p.y - 68 * t + bob], [p.x, p.y - 52 * t + bob]]);
+    c.textAlign = 'start'; c.textBaseline = 'alphabetic';
+  }
+
   private entity(e: RoadEntity): void {
+    if (e.kind === 'shop') { this.shopEntity(e); return; }
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
     if (p.y > 265) return;
     const s = p.scale, x = p.x, y = p.y;
@@ -461,6 +607,28 @@ export class DeliveryDashGame {
       r('#606F77', -16, 5, 4, 2); r('#98A4A7', 13, 5, 5, 2);
       // Orange markers distinguish the broken road from harmless asphalt texture.
       r('#ED8B00', -24, -16, 5, 3); r('#FFBB54', 20, -16, 5, 3);
+    } else if (e.kind === 'coupon') {
+      const time = this.engine.elapsed, calm = this.motion.matches;
+      const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 3, pulse = calm ? 0.3 : 0.28 + 0.12 * Math.sin(time * 6);
+      const cy = -30 + bob;
+      this.ctx.globalAlpha = pulse;
+      poly('#FFD36B', [[-34, cy], [-24, cy - 22], [0, cy - 30], [24, cy - 22], [34, cy], [24, cy + 22], [0, cy + 30], [-24, cy + 22]]);
+      this.ctx.globalAlpha = 1;
+      r('#7A4A00', -25, cy - 14, 50, 30); r('#FFC13A', -24, cy - 15, 48, 28); r('#FFE49A', -24, cy - 15, 48, 4);
+      r('#E08A00', -24, cy + 9, 48, 4);
+      for (let i = 0; i < 5; i++) r('#B86A00', 7, cy - 14 + i * 6, 2, 3);
+      r('#424D59', -26, cy - 4, 3, 6); r('#424D59', 23, cy - 4, 3, 6);
+      const star: number[][] = [];
+      for (let i = 0; i < 10; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI / 5, radius = i % 2 ? 4 : 9;
+        star.push([-9 + Math.cos(angle) * radius, cy - 1 + Math.sin(angle) * radius]);
+      }
+      poly('#0F3F73', star);
+      r('#0F3F73', 13, cy - 9, 8, 3); r('#0F3F73', 13, cy - 3, 8, 3); r('#0F3F73', 13, cy + 3, 5, 3);
+      if (!calm) for (let i = 0; i < 4; i++) {
+        const angle = time * 2.4 + i * Math.PI / 2, radius = 30 + 4 * Math.sin(time * 5 + i);
+        r(i % 2 ? '#FFFFFF' : '#FFE08A', Math.cos(angle) * radius, cy + Math.sin(angle) * radius * 0.7, 3, 3);
+      }
     } else {
       // Warm wrapping and a large orange bow make gifts distinct from roadworks.
       poly('#C69F65', [[-16, -25], [-11, -31], [18, -31], [18, -5], [13, 0], [-16, 0]]);
@@ -491,12 +659,40 @@ export class DeliveryDashGame {
       }
       this.ctx.globalAlpha = 1;
     }
+    const ghost = e.ghostUntil > e.elapsed;
+    const flicker = ghost && !this.motion.matches ? 0.45 + 0.15 * Math.sin(e.elapsed * 30) : ghost ? 0.5 : 1;
+    this.ctx.globalAlpha = flicker;
     this.ctx.drawImage(this.truck, left, top, width, height);
+    this.ctx.globalAlpha = 1;
+    this.logo.style.opacity = String(flicker);
+    const calm = this.motion.matches, time = e.elapsed;
     if (e.shields > 0 || e.invulnerableUntil > e.elapsed) {
+      this.ctx.globalAlpha = 0.14 + 0.04 * e.shields;
+      this.ctx.fillStyle = '#8ED5DD'; this.ctx.beginPath();
+      this.ctx.ellipse(p.x, top + 38, 32, 44, 0, 0, Math.PI * 2); this.ctx.fill();
+      this.ctx.globalAlpha = 1;
       for (let i = 0; i < 18; i++) {
         const angle = i * Math.PI * 2 / 18;
         this.rect(i % 3 ? '#8ED5DD' : '#D7F6EE', p.x + Math.cos(angle) * 29, top + 37 + Math.sin(angle) * 42, 2, 2);
       }
+      for (let i = 0; i < e.shields; i++) this.rect('#D7F6EE', p.x - 8 + i * 8, top - 6, 5, 5);
+    }
+    if (e.magnetUntil > time && !calm) {
+      for (let i = 0; i < 14; i++) {
+        const angle = time * 3 + i * Math.PI * 2 / 14, reach = 58 + 4 * Math.sin(time * 4 + i);
+        this.rect(i % 2 ? '#FF6A4D' : '#FFD1C8', p.x + Math.cos(angle) * reach, top + 60 + Math.sin(angle) * 16, 3, 3);
+      }
+    }
+    if ((e.doubleUntil > time || e.jackpotUntil > time) && !calm) {
+      const jackpot = e.jackpotUntil > time;
+      for (let i = 0; i < (jackpot ? 10 : 5); i++) {
+        const age = (time * (jackpot ? 1.8 : 1.1) + i * 0.37) % 1;
+        this.rect(jackpot ? (i % 2 ? '#C58BFF' : '#FFE08A') : '#FFC35B', p.x - 24 + ((i * 17) % 48), top + 66 - age * 70, 3, 3);
+      }
+    }
+    if (ghost && !calm) for (let i = 0; i < 6; i++) {
+      const age = (time * 1.4 + i * 0.17) % 1;
+      this.rect('#BFD0FF', p.x - 20 + ((i * 13) % 40), top + 70 + age * 20, 3, 4);
     }
     const pickupAge = e.elapsed - e.lastPickupAt;
     if (!this.motion.matches && pickupAge >= 0 && pickupAge < 0.4) {

@@ -8,6 +8,7 @@
 .dash-header img { display: block; object-fit: contain; }
 .dash-name { font-size: 10px; font-weight: 650; letter-spacing: 1.5px; color: #C6D5E8; flex: 1; }
 .dash-name small { display: block; margin-top: 4px; font-size: 10px; letter-spacing: 0.5px; color: #FFC35B; font-variant-numeric: tabular-nums; }
+.dash-icon-button { display: grid; place-items: center; width: 36px; min-height: 36px; padding: 0; background: #123C68; border: 0; border-radius: 6px; color: #FFF; }
 .dash-pause { min-height: 36px; background: #123C68; border: 0; border-radius: 6px; color: #FFF; font-size: 12px !important; padding: 6px 12px; }
 .dash-stats { display: flex; justify-content: space-between; gap: 10px; padding: 0 20px 14px; }
 .dash-stats > div { display: flex; flex-direction: column; gap: 3px; }
@@ -18,14 +19,9 @@
 .dash-perks { padding: 0 18px 10px; color: #FFCF80; text-align: center; font-size: 11px; }
 .dash-perks[hidden], .dash-toast[hidden], .dash-start[hidden], .dash-rewards[hidden] { display: none; }
 .dash-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 6px 12px; border-radius: 5px; background: #002855EB; color: #FFCF80; font-weight: 650; font-size: 12px; white-space: nowrap; pointer-events: none; }
-.dash-rewards { display: grid; gap: 7px; margin-top: 12px; }
-.dash-rewards button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 12px; min-height: 48px; text-align: left; color: #002855; background: #F4F6FB; border: 1px solid #D8E1EC; border-radius: 6px; }
-.dash-rewards button:not(:disabled):hover { background: #FFF0D7; border-color: #ED8B00; }
-.dash-rewards strong { font-size: 12px; }
-.dash-rewards span { font-size: 10px; line-height: 1.35; color: #52647A; }
-.delivery-dash[data-state="reward"] .dash-overlay { padding-top: 16px; }
-.delivery-dash[data-state="reward"] .dash-overlay-card { padding: 16px; }
-.delivery-dash[data-state="reward"] .dash-overlay p { margin-bottom: 7px; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay { padding-top: 16px; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay-card { padding: 16px; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay p { margin-bottom: 7px; }
 .dash-scene { position: relative; width: 100%; overflow: hidden; background: #F4F6FB; }
 .dash-scene canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; touch-action: pan-y; }
 .dash-truck-logo { position: absolute; display: block; height: auto; image-rendering: auto; max-width: none; pointer-events: none; visibility: hidden; }
@@ -44,13 +40,13 @@
 .dash-help small { display: block; font-size: 10px; color: #AEC3DC; }
 .dash-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 380px) {
-  .delivery-dash[data-state="reward"] .dash-scene { min-height: 306px; }
-  .delivery-dash[data-state="reward"] .dash-overlay { padding-top: 10px; }
-  .delivery-dash[data-state="reward"] .dash-overlay-card { padding: 12px; }
-  .delivery-dash[data-state="reward"] .dash-overlay h2 { margin: 6px 0; }
-  .delivery-dash[data-state="reward"] .dash-overlay p { font-size: 11px; line-height: 1.4; }
-  .delivery-dash[data-state="reward"] .dash-rewards { gap: 6px; margin-top: 9px; }
-  .delivery-dash[data-state="reward"] .dash-rewards button { min-height: 44px; padding: 7px 10px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-scene { min-height: 306px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay { padding-top: 10px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay-card { padding: 12px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay h2 { margin: 6px 0; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay p { font-size: 11px; line-height: 1.4; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-rewards { gap: 6px; margin-top: 9px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-rewards button { min-height: 44px; padding: 7px 10px; }
   .dash-header { gap: 8px; padding: 12px 12px 10px; }
   .dash-name { font-size: 9px; letter-spacing: 0.7px; }
   .dash-overlay { padding-top: 18px; }
@@ -61,7 +57,7 @@
   .dash-help small { font-size: 10px; }
 }
 @media (max-width: 280px) {
-  .delivery-dash[data-state="reward"] .dash-eyebrow { display: block; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-eyebrow { display: block; }
   .dash-name { display: none; }
   .dash-header { justify-content: space-between; }
   .dash-overlay { padding: 10px; }
@@ -71,3 +67,43 @@
   .dash-overlay p { margin-bottom: 8px; }
   .dash-help small { display: none; }
 }
+
+.dash-rewards { display: grid; gap: 8px; margin-top: 12px; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-scene { min-height: 340px; }
+.dash-rewards button { --accent: #ED8B00; position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 12px 9px 9px; min-height: 56px; text-align: left; color: #FFF; background: linear-gradient(100deg, #0B3A6B, #123C68); border: 1px solid #41638A; border-left: 4px solid var(--accent); border-radius: 8px; transition: transform 0.12s, box-shadow 0.12s; }
+.dash-rewards button:not(:disabled):hover, .dash-rewards button:not(:disabled):focus-visible { transform: translateY(-1px); box-shadow: 0 0 0 2px var(--accent), 0 6px 14px #00285540; }
+.dash-rewards button:not(:disabled):active { transform: scale(0.98); }
+.dash-rewards svg { flex-shrink: 0; width: 34px; height: 34px; padding: 5px; border-radius: 50%; background: var(--accent); color: #FFF; }
+.dash-rewards .dash-reward-shield { --accent: #1FA3B5; }
+.dash-rewards .dash-reward-magnet { --accent: #D9381E; }
+.dash-rewards .dash-reward-double { --accent: #E5A100; }
+.dash-reward-text { display: flex; flex-direction: column; gap: 2px; }
+.dash-rewards strong { font-size: 13px; letter-spacing: 0.2px; }
+.dash-reward-text span { font-size: 10px; line-height: 1.35; color: #C6D5E8; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay { background: radial-gradient(circle at 50% 30%, #FFC35B55, #00285599 80%); }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay-card { background: #002855; color: #FFF; border: 2px dashed #FFC35B; box-shadow: 0 0 0 4px #002855, 0 0 28px #ED8B0088; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-eyebrow { color: #FFC35B; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay h2 { font-size: 34px; letter-spacing: 6px; margin: 4px 0; color: #FFC35B; text-shadow: 0 2px 0 #B05F00; }
+.delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay p { color: #C6D5E8; }
+.delivery-dash.dash-fullscreen { position: fixed; inset: 0; z-index: 2147483000; width: 100vw; height: 100vh; height: 100dvh; max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: center; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.dash-fullscreen .dash-scene { width: min(100%, calc((100dvh - 190px) * 240 / 230)); min-width: 240px; margin-inline: auto; align-self: center; }
+.dash-fullscreen .dash-header, .dash-fullscreen .dash-stats, .dash-fullscreen .dash-controls { width: min(100%, 640px); margin-inline: auto; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .dash-fullscreen .dash-scene { width: min(100%, calc((100dvh - 100px) * 240 / 230)); }
+  .dash-fullscreen .dash-header { padding: 6px 14px; }
+  .dash-fullscreen .dash-stats { padding-bottom: 4px; }
+  .dash-fullscreen .dash-stat-value { font-size: 15px; }
+  .dash-fullscreen .dash-help { display: none; }
+  .dash-fullscreen .dash-controls { padding: 4px 12px; justify-content: space-between; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay-card { padding: 8px 12px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay h2 { font-size: 22px; letter-spacing: 4px; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-overlay p { display: none; }
+  .delivery-dash:is([data-state="reward"], [data-state="shop"]) .dash-rewards { gap: 4px; margin-top: 4px; }
+  .dash-rewards button { min-height: 40px; }
+}
+.dash-fullscreen .dash-overlay-card { max-width: min(420px, 90%); }
+.dash-reward-cost { margin-left: auto; padding-left: 8px; font-style: normal; font-weight: 750; font-size: 12px; color: #FFC35B; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delivery-dash[data-state="shop"] .dash-scene { min-height: 480px; }
+.delivery-dash[data-state="shop"] .dash-rewards { margin-bottom: 12px; }
+.delivery-dash[data-state="shop"] .dash-rewards button { min-height: 50px; }
+.dash-rewards button:disabled { filter: grayscale(0.7); }
