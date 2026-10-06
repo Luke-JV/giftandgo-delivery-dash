@@ -22,6 +22,15 @@
         <span class="dash-eyebrow" data-eyebrow>THE GIFT&amp;GO ROAD TRIP</span>
         <h2 data-overlay-title>Special delivery.</h2>
         <p data-overlay-message>Dodge the roadworks. Collect the gifts.</p>
+        <div class="dash-board" data-board hidden>
+          <span class="dash-board-title">TOP DRIVERS</span>
+          <ol data-board-list></ol>
+        </div>
+        <p class="dash-board-note" data-board-note role="status" hidden></p>
+        <form class="dash-submit" data-submit hidden>
+          <input type="text" data-nickname maxlength="16" placeholder="Your nickname" autocomplete="nickname" aria-label="Nickname for the leaderboard" />
+          <button type="submit" data-submit-button>Submit score</button>
+        </form>
         <button class="dash-start" type="button" data-action="start" disabled>Start driving</button>
         <div class="dash-rewards" data-rewards hidden></div>
         <button class="dash-start" type="button" data-action="leave-shop" hidden>Back on the road</button>

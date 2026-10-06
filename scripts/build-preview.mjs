@@ -17,7 +17,7 @@ const compile = name => ts.transpileModule(read(name), {
   .replace(/^export (?=const|class|function|interface|type)/gm, '')
   .replace(/^export \{\};?$/gm, '');
 
-const script = ['delivery-dash.assets.ts', 'delivery-dash.rewards.ts', 'delivery-dash.engine.ts', 'delivery-dash.game.ts'].map(compile).join('\n');
+const script = ['delivery-dash.assets.ts', 'delivery-dash.rewards.ts', 'delivery-dash.engine.ts', 'delivery-dash.leaderboard.ts', 'delivery-dash.game.ts'].map(compile).join('\n');
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gift&Go Delivery Dash</title><style>body{margin:0;padding:16px;background:#F4F6FB;font-family:system-ui} @media(max-width:400px){body{padding:0}}</style></head><body>
 <div id="giftgo-delivery-dash-preview">

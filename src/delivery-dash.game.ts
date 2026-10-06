@@ -1,6 +1,7 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
 import { DeliveryDashEngine, GameState, GiftReward, RoadEntity, RunResult, SHOP_ITEMS } from './delivery-dash.engine';
 import { REWARD_CATALOG } from './delivery-dash.rewards';
+import { cleanNickname, fetchRank, fetchTopScores, MIN_SCORE_DISTANCE, ScoreRow, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
 
@@ -34,6 +35,12 @@ export class DeliveryDashGame {
   private toastLocked = false;
   private offerKey = '';
   private shopNote = '';
+  private boardRows: ScoreRow[] = [];
+  private boardNote = '';
+  private highlightId = 0;
+  private pendingResult: RunResult | null = null;
+  private submitting = false;
+  private nicknameKey = 'giftgo-delivery-dash-name';
   private fullscreen = false;
   private nativeFullscreen = false;
   private static readonly W = 240;
@@ -61,6 +68,8 @@ export class DeliveryDashGame {
     listen(this.find('[data-action="pause"]'), 'click', () => this.togglePause());
     listen(this.find('[data-action="left"]'), 'click', () => this.engine.steer(-1));
     listen(this.find('[data-action="right"]'), 'click', () => this.engine.steer(1));
+    listen(this.find('[data-submit]'), 'submit', event => { event.preventDefault(); void this.submitRun(); });
+    try { this.find<HTMLInputElement>('[data-nickname]').value = win.localStorage.getItem(this.nicknameKey) ?? ''; } catch {}
     listen(this.find('[data-action="fullscreen"]'), 'click', () => this.toggleFullscreen());
     listen(root.ownerDocument, 'fullscreenchange', () => this.fullscreenChanged());
     listen(this.find('[data-rewards]'), 'click', event => {
@@ -102,7 +111,7 @@ export class DeliveryDashGame {
       this.scenery = Object.fromEntries(entries);
       this.truck = this.scenery['truck']; this.ready = true;
       this.find<HTMLButtonElement>('[data-action="start"]').disabled = false;
-      this.draw(); this.syncUI(); this.schedule();
+      this.draw(); this.syncUI(); this.schedule(); void this.refreshBoard();
     }).catch(() => {
       if (this.destroyed) return;
       this.find('[data-overlay-title]').textContent = 'Unable to load the game';
@@ -120,7 +129,7 @@ export class DeliveryDashGame {
   private startOrResume(): void {
     if (!this.ready || this.destroyed) return;
     if (this.engine.state === 'paused') this.engine.resume();
-    else { this.engine.start(); this.idleTime = 0; }
+    else { this.engine.start(); this.idleTime = 0; this.pendingResult = null; this.boardNote = ''; this.highlightId = 0; }
     this.lastGiftPoints = this.engine.giftPoints;
     this.lastTime = 0; this.uiTime = 0;
     this.syncUI();
@@ -193,6 +202,8 @@ export class DeliveryDashGame {
 
   private key(e: KeyboardEvent): void {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
     if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
       e.preventDefault();
       if (!e.repeat) this.engine.steer(['ArrowLeft', 'a', 'A'].includes(e.key) ? -1 : 1);
@@ -251,9 +262,12 @@ export class DeliveryDashGame {
         this.best = Math.max(this.best, Math.floor(this.engine.distance));
         try { this.win.localStorage.setItem('giftgo-delivery-dash-best', String(this.best)); } catch {}
         this.onFinish(this.engine.result);
+        this.pendingResult = this.engine.result.distance >= MIN_SCORE_DISTANCE ? this.engine.result : null;
+        this.boardNote = ''; this.highlightId = 0;
+        void this.refreshBoard();
         this.find('[data-live-status]').textContent = `Run finished. ${Math.floor(this.engine.distance)} metres, ${this.engine.pointsEarned} gift points earned. Play again to restart.`;
         this.syncUI();
-        this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
+        if (!this.pendingResult) this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
       } else if ((this.engine.state as GameState) === 'shop') {
         this.shopNote = '';
         this.syncUI();
@@ -285,6 +299,7 @@ export class DeliveryDashGame {
     this.find<HTMLElement>('[data-rewards]').hidden = state !== 'reward' && state !== 'shop';
     this.find<HTMLElement>('[data-action="leave-shop"]').hidden = state !== 'shop';
     this.renderOffer();
+    this.renderBoard();
     this.find('[data-overlay-title]').textContent = title;
     this.find('[data-overlay-message]').textContent = message;
     const start = this.find<HTMLButtonElement>('[data-action="start"]');
@@ -311,6 +326,62 @@ export class DeliveryDashGame {
     }
     this.lastGiftPoints = this.engine.giftPoints;
     this.find<HTMLElement>('[data-toast]').hidden = state !== 'running' || this.engine.elapsed >= this.toastUntil;
+  }
+
+  private async refreshBoard(): Promise<void> {
+    try { this.boardRows = await fetchTopScores(5); } catch { this.boardRows = []; }
+    if (!this.destroyed) this.renderBoard();
+  }
+
+  private renderBoard(): void {
+    const state = this.engine.state;
+    const showBoard = (state === 'ready' || state === 'crashed') && this.boardRows.length > 0;
+    const board = this.find<HTMLElement>('[data-board]');
+    board.hidden = !showBoard;
+    const form = this.find<HTMLElement>('[data-submit]');
+    form.hidden = !(state === 'crashed' && this.pendingResult);
+    const note = this.find<HTMLElement>('[data-board-note]');
+    note.textContent = this.boardNote; note.hidden = !this.boardNote || (state !== 'crashed' && state !== 'ready');
+    const renderedKey = `${this.boardRows.map(row => row.id).join()}|${this.highlightId}`;
+    if (!showBoard || board.dataset['key'] === renderedKey) return;
+    board.dataset['key'] = renderedKey;
+    const list = this.find('[data-board-list]');
+    list.replaceChildren();
+    const doc = this.root.ownerDocument;
+    this.boardRows.forEach((row, index) => {
+      const item = doc.createElement('li');
+      if (row.id === this.highlightId) item.className = 'dash-board-you';
+      for (const [className, text] of [['dash-board-rank', String(index + 1)], ['dash-board-name', row.nickname], ['dash-board-distance', `${row.distance}m`]]) {
+        const cell = doc.createElement('span'); cell.className = className; cell.textContent = text; item.appendChild(cell);
+      }
+      list.appendChild(item);
+    });
+  }
+
+  private async submitRun(): Promise<void> {
+    const result = this.pendingResult;
+    if (!result || this.submitting) return;
+    const input = this.find<HTMLInputElement>('[data-nickname]');
+    const nickname = cleanNickname(input.value);
+    if (!nickname) { this.boardNote = 'Use 2–16 letters, numbers or spaces, family-friendly please.'; this.renderBoard(); input.focus(); return; }
+    this.submitting = true;
+    const button = this.find<HTMLButtonElement>('[data-submit-button]');
+    button.disabled = true; this.boardNote = 'Submitting…'; this.renderBoard();
+    try {
+      this.highlightId = await submitScore(nickname, result);
+      try { this.win.localStorage.setItem(this.nicknameKey, nickname); } catch {}
+      this.pendingResult = null;
+      const [rows, rank] = await Promise.all([fetchTopScores(5), fetchRank(result.distance).catch(() => 0)]);
+      this.boardRows = rows;
+      this.boardNote = rank ? `You placed #${rank} with ${result.distance}m!` : 'Score submitted!';
+      this.find('[data-live-status]').textContent = this.boardNote;
+      this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
+    } catch {
+      this.boardNote = 'Couldn’t reach the leaderboard. Try again.';
+    } finally {
+      this.submitting = false; button.disabled = false;
+      if (!this.destroyed) this.renderBoard();
+    }
   }
 
   private renderOffer(): void {

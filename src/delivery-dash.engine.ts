@@ -3,7 +3,7 @@ export type GiftReward = 'shield' | 'magnet' | 'double' | 'jackpot' | 'ghost' | 
 export const ALL_REWARDS: readonly GiftReward[] = ['shield', 'magnet', 'double', 'jackpot', 'ghost', 'sweeper', 'shower', 'mystery'];
 export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'coupon' | 'shop';
 export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; }
-export interface RunResult { distance: number; gifts: number; giftPoints: number; coupons: number; spent: number; }
+export interface RunResult { distance: number; gifts: number; giftPoints: number; coupons: number; spent: number; duration: number; }
 export const SHOP_ITEMS: readonly { reward: GiftReward; cost: number }[] = [
   { reward: 'shield', cost: 100 },
   { reward: 'magnet', cost: 150 },
@@ -54,7 +54,7 @@ export class DeliveryDashEngine {
   get speed(): number { return 86 + 2.4 * this.elapsed; }
   get pace(): number { return this.speed / 86; }
   private travelAfter(seconds: number): number { return this.speed * seconds + 1.2 * seconds * seconds; }
-  get result(): RunResult { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent }; }
+  get result(): RunResult { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent, duration: Math.round(this.elapsed * 100) / 100 }; }
 
   start(): void {
     this.distance = this.elapsed = this.gifts = this.row = this.nextId = 0;

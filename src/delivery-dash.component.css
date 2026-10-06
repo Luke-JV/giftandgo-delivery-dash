@@ -107,3 +107,21 @@
 .delivery-dash[data-state="shop"] .dash-rewards { margin-bottom: 12px; }
 .delivery-dash[data-state="shop"] .dash-rewards button { min-height: 50px; }
 .dash-rewards button:disabled { filter: grayscale(0.7); }
+.dash-overlay { overflow-y: auto; }
+.delivery-dash:is([data-state="ready"], [data-state="crashed"]) .dash-scene { min-height: 380px; }
+.dash-board { margin: 0 0 12px; text-align: left; }
+.dash-board[hidden], .dash-board-note[hidden], .dash-submit[hidden] { display: none; }
+.dash-board-title { display: block; margin-bottom: 4px; color: #7A6650; font-size: 9px; font-weight: 650; letter-spacing: 1.8px; text-align: center; }
+.dash-board ol { margin: 0; padding: 0; list-style: none; }
+.dash-board li { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dash-board li:nth-child(odd) { background: #F4F6FB; }
+.dash-board li.dash-board-you { background: #FFE9C2; font-weight: 700; }
+.dash-board-rank { width: 18px; color: #ED8B00; font-weight: 750; }
+.dash-board-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-board-distance { color: #55647A; }
+.dash-board-note { margin: 0 0 10px !important; font-size: 12px; font-weight: 650; color: #B05F00 !important; }
+.dash-submit { display: flex; gap: 6px; margin: 0 0 12px; }
+.dash-submit input { flex: 1; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid #B9C7D8; border-radius: 7px; font: inherit; font-size: 16px; color: #002855; background: #FFF; }
+.dash-submit input:focus-visible { outline: 3px solid #FFC35B; outline-offset: 0; }
+.dash-submit button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 7px; background: #002855; color: #FFF; font-weight: 700; font-size: 13px; }
+@media (max-width: 520px) { .dash-overlay { padding-top: 10px; } .dash-overlay h2 { margin: 4px 0; } .dash-overlay p { margin-bottom: 8px; } .dash-board li { padding: 2px 8px; } }

@@ -25,6 +25,15 @@
         <span class="dash-eyebrow" data-eyebrow>THE GIFT&amp;GO ROAD TRIP</span>
         <h2 data-overlay-title>Special delivery.</h2>
         <p data-overlay-message>Dodge the roadworks. Collect the gifts.</p>
+        <div class="dash-board" data-board hidden>
+          <span class="dash-board-title">TOP DRIVERS</span>
+          <ol data-board-list></ol>
+        </div>
+        <p class="dash-board-note" data-board-note role="status" hidden></p>
+        <form class="dash-submit" data-submit hidden>
+          <input type="text" data-nickname maxlength="16" placeholder="Your nickname" autocomplete="nickname" aria-label="Nickname for the leaderboard" />
+          <button type="submit" data-submit-button>Submit score</button>
+        </form>
         <button class="dash-start" type="button" data-action="start" disabled>Start driving</button>
         <div class="dash-rewards" data-rewards hidden></div>
         <button class="dash-start" type="button" data-action="leave-shop" hidden>Back on the road</button>
@@ -150,6 +159,24 @@
 .delivery-dash[data-state="shop"] .dash-rewards { margin-bottom: 12px; }
 .delivery-dash[data-state="shop"] .dash-rewards button { min-height: 50px; }
 .dash-rewards button:disabled { filter: grayscale(0.7); }
+.dash-overlay { overflow-y: auto; }
+.delivery-dash:is([data-state="ready"], [data-state="crashed"]) .dash-scene { min-height: 380px; }
+.dash-board { margin: 0 0 12px; text-align: left; }
+.dash-board[hidden], .dash-board-note[hidden], .dash-submit[hidden] { display: none; }
+.dash-board-title { display: block; margin-bottom: 4px; color: #7A6650; font-size: 9px; font-weight: 650; letter-spacing: 1.8px; text-align: center; }
+.dash-board ol { margin: 0; padding: 0; list-style: none; }
+.dash-board li { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dash-board li:nth-child(odd) { background: #F4F6FB; }
+.dash-board li.dash-board-you { background: #FFE9C2; font-weight: 700; }
+.dash-board-rank { width: 18px; color: #ED8B00; font-weight: 750; }
+.dash-board-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-board-distance { color: #55647A; }
+.dash-board-note { margin: 0 0 10px !important; font-size: 12px; font-weight: 650; color: #B05F00 !important; }
+.dash-submit { display: flex; gap: 6px; margin: 0 0 12px; }
+.dash-submit input { flex: 1; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid #B9C7D8; border-radius: 7px; font: inherit; font-size: 16px; color: #002855; background: #FFF; }
+.dash-submit input:focus-visible { outline: 3px solid #FFC35B; outline-offset: 0; }
+.dash-submit button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 7px; background: #002855; color: #FFF; font-weight: 700; font-size: 13px; }
+@media (max-width: 520px) { .dash-overlay { padding-top: 10px; } .dash-overlay h2 { margin: 4px 0; } .dash-overlay p { margin-bottom: 8px; } .dash-board li { padding: 2px 8px; } }
 
 </style>
 <script>
@@ -244,7 +271,7 @@ class DeliveryDashEngine {
     get speed() { return 86 + 2.4 * this.elapsed; }
     get pace() { return this.speed / 86; }
     travelAfter(seconds) { return this.speed * seconds + 1.2 * seconds * seconds; }
-    get result() { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent }; }
+    get result() { return { distance: Math.floor(this.distance), gifts: this.gifts, giftPoints: this.pointsEarned, coupons: this.coupons, spent: this.spent, duration: Math.round(this.elapsed * 100) / 100 }; }
     start() {
         this.distance = this.elapsed = this.gifts = this.row = this.nextId = 0;
         this.spawnIn = 1.6;
@@ -464,6 +491,49 @@ class DeliveryDashEngine {
     }
 }
 
+// The anon key is public by design; Row Level Security blocks direct writes and
+// submit_score validates every run server-side.
+const SUPABASE_URL = 'https://jrfblescrprjndybqkog.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyZmJsZXNjcnByam5keWJxa29nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyOTczMzYsImV4cCI6MjEwNjg3MzMzNn0.gkr5RDt8qcqTN2juJP0dxSW4DVPyRMkjTuj84g6gDMM';
+const REQUEST_TIMEOUT_MS = 8000;
+const BLOCKED_WORDS = ['fuck', 'shit', 'cunt', 'bitch', 'nigg', 'fag', 'rape', 'nazi', 'whore', 'slut', 'dick', 'cock', 'pussy'];
+const MIN_SCORE_DISTANCE = 20;
+const request = async (path, init = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+            ...init,
+            signal: controller.signal,
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', ...init.headers },
+        });
+        if (!response.ok)
+            throw new Error(`Leaderboard request failed (${response.status})`);
+        return response;
+    }
+    finally {
+        clearTimeout(timer);
+    }
+};
+const cleanNickname = (raw) => {
+    const nickname = raw.replace(/\s+/g, ' ').trim();
+    if (nickname.length < 2 || nickname.length > 16 || !/^[\p{L}\p{N} ._-]+$/u.test(nickname))
+        return null;
+    const squashed = nickname.toLowerCase().replace(/[^a-z]/g, '');
+    return BLOCKED_WORDS.some(word => squashed.includes(word)) ? null : nickname;
+};
+const fetchTopScores = async (limit = 5) => (await request(`scores?select=id,nickname,distance,gifts&order=distance.desc,created_at.asc&limit=${limit}`)).json();
+const submitScore = async (nickname, result) => (await request('rpc/submit_score', { method: 'POST', body: JSON.stringify({
+        p_nickname: nickname, p_distance: result.distance, p_gifts: result.gifts,
+        p_points: result.giftPoints, p_duration: result.duration,
+    }) })).json();
+/** 1-based rank of a distance: runs strictly further than it, plus one. */
+const fetchRank = async (distance) => {
+    const response = await request(`scores?select=id&distance=gt.${Math.floor(distance)}`, { method: 'HEAD', headers: { Prefer: 'count=exact' } });
+    return Number(response.headers.get('content-range')?.split('/')[1] ?? 0) + 1;
+};
+
+
 
 
 
@@ -495,6 +565,12 @@ class DeliveryDashGame {
         this.toastLocked = false;
         this.offerKey = '';
         this.shopNote = '';
+        this.boardRows = [];
+        this.boardNote = '';
+        this.highlightId = 0;
+        this.pendingResult = null;
+        this.submitting = false;
+        this.nicknameKey = 'giftgo-delivery-dash-name';
         this.fullscreen = false;
         this.nativeFullscreen = false;
         this.canvas = this.find('[data-game-canvas]');
@@ -521,6 +597,11 @@ class DeliveryDashGame {
         listen(this.find('[data-action="pause"]'), 'click', () => this.togglePause());
         listen(this.find('[data-action="left"]'), 'click', () => this.engine.steer(-1));
         listen(this.find('[data-action="right"]'), 'click', () => this.engine.steer(1));
+        listen(this.find('[data-submit]'), 'submit', event => { event.preventDefault(); void this.submitRun(); });
+        try {
+            this.find('[data-nickname]').value = win.localStorage.getItem(this.nicknameKey) ?? '';
+        }
+        catch { }
         listen(this.find('[data-action="fullscreen"]'), 'click', () => this.toggleFullscreen());
         listen(root.ownerDocument, 'fullscreenchange', () => this.fullscreenChanged());
         listen(this.find('[data-rewards]'), 'click', event => {
@@ -578,6 +659,7 @@ class DeliveryDashGame {
             this.draw();
             this.syncUI();
             this.schedule();
+            void this.refreshBoard();
         }).catch(() => {
             if (this.destroyed)
                 return;
@@ -600,6 +682,9 @@ class DeliveryDashGame {
         else {
             this.engine.start();
             this.idleTime = 0;
+            this.pendingResult = null;
+            this.boardNote = '';
+            this.highlightId = 0;
         }
         this.lastGiftPoints = this.engine.giftPoints;
         this.lastTime = 0;
@@ -680,6 +765,9 @@ class DeliveryDashGame {
     key(e) {
         if (e.altKey || e.ctrlKey || e.metaKey)
             return;
+        const target = e.target;
+        if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA')
+            return;
         if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
             e.preventDefault();
             if (!e.repeat)
@@ -755,9 +843,14 @@ class DeliveryDashGame {
                 }
                 catch { }
                 this.onFinish(this.engine.result);
+                this.pendingResult = this.engine.result.distance >= MIN_SCORE_DISTANCE ? this.engine.result : null;
+                this.boardNote = '';
+                this.highlightId = 0;
+                void this.refreshBoard();
                 this.find('[data-live-status]').textContent = `Run finished. ${Math.floor(this.engine.distance)} metres, ${this.engine.pointsEarned} gift points earned. Play again to restart.`;
                 this.syncUI();
-                this.find('[data-action="start"]').focus({ preventScroll: true });
+                if (!this.pendingResult)
+                    this.find('[data-action="start"]').focus({ preventScroll: true });
             }
             else if (this.engine.state === 'shop') {
                 this.shopNote = '';
@@ -796,6 +889,7 @@ class DeliveryDashGame {
         this.find('[data-rewards]').hidden = state !== 'reward' && state !== 'shop';
         this.find('[data-action="leave-shop"]').hidden = state !== 'shop';
         this.renderOffer();
+        this.renderBoard();
         this.find('[data-overlay-title]').textContent = title;
         this.find('[data-overlay-message]').textContent = message;
         const start = this.find('[data-action="start"]');
@@ -829,6 +923,86 @@ class DeliveryDashGame {
         }
         this.lastGiftPoints = this.engine.giftPoints;
         this.find('[data-toast]').hidden = state !== 'running' || this.engine.elapsed >= this.toastUntil;
+    }
+    async refreshBoard() {
+        try {
+            this.boardRows = await fetchTopScores(5);
+        }
+        catch {
+            this.boardRows = [];
+        }
+        if (!this.destroyed)
+            this.renderBoard();
+    }
+    renderBoard() {
+        const state = this.engine.state;
+        const showBoard = (state === 'ready' || state === 'crashed') && this.boardRows.length > 0;
+        const board = this.find('[data-board]');
+        board.hidden = !showBoard;
+        const form = this.find('[data-submit]');
+        form.hidden = !(state === 'crashed' && this.pendingResult);
+        const note = this.find('[data-board-note]');
+        note.textContent = this.boardNote;
+        note.hidden = !this.boardNote || (state !== 'crashed' && state !== 'ready');
+        const renderedKey = `${this.boardRows.map(row => row.id).join()}|${this.highlightId}`;
+        if (!showBoard || board.dataset['key'] === renderedKey)
+            return;
+        board.dataset['key'] = renderedKey;
+        const list = this.find('[data-board-list]');
+        list.replaceChildren();
+        const doc = this.root.ownerDocument;
+        this.boardRows.forEach((row, index) => {
+            const item = doc.createElement('li');
+            if (row.id === this.highlightId)
+                item.className = 'dash-board-you';
+            for (const [className, text] of [['dash-board-rank', String(index + 1)], ['dash-board-name', row.nickname], ['dash-board-distance', `${row.distance}m`]]) {
+                const cell = doc.createElement('span');
+                cell.className = className;
+                cell.textContent = text;
+                item.appendChild(cell);
+            }
+            list.appendChild(item);
+        });
+    }
+    async submitRun() {
+        const result = this.pendingResult;
+        if (!result || this.submitting)
+            return;
+        const input = this.find('[data-nickname]');
+        const nickname = cleanNickname(input.value);
+        if (!nickname) {
+            this.boardNote = 'Use 2–16 letters, numbers or spaces, family-friendly please.';
+            this.renderBoard();
+            input.focus();
+            return;
+        }
+        this.submitting = true;
+        const button = this.find('[data-submit-button]');
+        button.disabled = true;
+        this.boardNote = 'Submitting…';
+        this.renderBoard();
+        try {
+            this.highlightId = await submitScore(nickname, result);
+            try {
+                this.win.localStorage.setItem(this.nicknameKey, nickname);
+            }
+            catch { }
+            this.pendingResult = null;
+            const [rows, rank] = await Promise.all([fetchTopScores(5), fetchRank(result.distance).catch(() => 0)]);
+            this.boardRows = rows;
+            this.boardNote = rank ? `You placed #${rank} with ${result.distance}m!` : 'Score submitted!';
+            this.find('[data-live-status]').textContent = this.boardNote;
+            this.find('[data-action="start"]').focus({ preventScroll: true });
+        }
+        catch {
+            this.boardNote = 'Couldn’t reach the leaderboard. Try again.';
+        }
+        finally {
+            this.submitting = false;
+            button.disabled = false;
+            if (!this.destroyed)
+                this.renderBoard();
+        }
     }
     renderOffer() {
         const state = this.engine.state;

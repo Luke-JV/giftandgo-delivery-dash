@@ -8,7 +8,7 @@ scenery reuses the original loading animation’s trees, layered hills and cloud
 
 ## Use in Angular
 
-Copy the seven files in `src/` into `src/app/shared/delivery-dash/`.
+Copy the eight files in `src/` into `src/app/shared/delivery-dash/`.
 Import the standalone `DeliveryDashComponent` in your page's `imports`.
 
 ```ts
@@ -89,6 +89,16 @@ shop, where you can buy Shield (100), Magnet (150), Ghost Truck (200) and Road S
 with gift points. Shop rows have no hazards. Missing the lane means missing the shop.
 Run gift points, boosts and timers reset when starting a new run. These are game-only
 rewards: no real loyalty balance or coupon-store API is called.
+
+## Leaderboard
+
+Runs of 20m or more can be submitted with a 2–16 character nickname once the run ends. The
+start and game-over screens show the top five by distance. Scores live in Supabase
+(`scores` table, read-only to the public via RLS) and are written only through the
+`submit_score` function, which rejects distances, gift counts and points that are impossible
+for the run's duration. Project URL and the public anon key are constants at the top of
+`delivery-dash.leaderboard.ts`. If the network call fails the game still works. Remove
+unwanted entries in the Supabase table editor.
 
 ## Fullscreen
 
