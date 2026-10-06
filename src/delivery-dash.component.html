@@ -1,0 +1,37 @@
+<section class="delivery-dash" aria-label="Gift and Go Delivery Dash driving game">
+  <header class="dash-header">
+    <img data-brand-logo width="88" height="21" alt="Gift&amp;Go" />
+    <span class="dash-name">DELIVERY DASH<small>PACE <span data-speed>1.0×</span></small></span>
+    <button class="dash-pause" type="button" data-action="pause" disabled>Pause</button>
+  </header>
+  <div class="dash-stats" aria-label="Run statistics">
+    <div><span class="dash-stat-label">DISTANCE</span><span class="dash-stat-value"><span data-distance>0000</span><small>m</small></span></div>
+    <div><span class="dash-stat-label">GIFT POINTS</span><span class="dash-stat-value" data-points>0</span></div>
+    <div><span class="dash-stat-label">BEST</span><span class="dash-stat-value" data-best>0m</span></div>
+  </div>
+  <div class="dash-perks" data-perks hidden></div>
+  <div class="dash-scene" data-scene>
+    <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts as the pace increases."></canvas>
+    <img class="dash-truck-logo" data-truck-logo alt="" aria-hidden="true" />
+    <span class="dash-toast" data-toast hidden></span>
+    <div class="dash-overlay" data-overlay>
+      <div class="dash-overlay-card">
+        <span class="dash-eyebrow" data-eyebrow>THE GIFT&amp;GO ROAD TRIP</span>
+        <h2 data-overlay-title>Special delivery.</h2>
+        <p data-overlay-message>Dodge the roadworks. Collect the gifts.</p>
+        <button class="dash-start" type="button" data-action="start" disabled>Start driving</button>
+        <div class="dash-rewards" data-rewards hidden>
+          <button type="button" data-reward="shield"><strong>Delivery shield</strong><span data-shield-description>Protects against one collision</span></button>
+          <button type="button" data-reward="magnet"><strong>Gift magnet</strong><span>Collect gifts from adjacent lanes · 25s</span></button>
+          <button type="button" data-reward="double"><strong>Double gift points</strong><span>Earn twice the gift points · 25s</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <footer class="dash-controls">
+    <button class="dash-steer" type="button" data-action="left" aria-label="Move one lane left" disabled>←</button>
+    <div class="dash-help"><span>Steer with ← → or A / D</span><small>Tap either side or swipe on mobile</small></div>
+    <button class="dash-steer" type="button" data-action="right" aria-label="Move one lane right" disabled>→</button>
+  </footer>
+  <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>
+</section>
