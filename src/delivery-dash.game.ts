@@ -363,7 +363,7 @@ export class DeliveryDashGame {
     if (!result || this.submitting) return;
     const input = this.find<HTMLInputElement>('[data-nickname]');
     const nickname = cleanNickname(input.value);
-    if (!nickname) { this.boardNote = 'Use 2–16 letters, numbers or spaces, family-friendly please.'; this.renderBoard(); input.focus(); return; }
+    if (!nickname) { this.boardNote = 'Pick a family-friendly name, 2–16 characters.'; this.renderBoard(); input.focus(); return; }
     this.submitting = true;
     const button = this.find<HTMLButtonElement>('[data-submit-button]');
     button.disabled = true; this.boardNote = 'Submitting…'; this.renderBoard();
@@ -376,8 +376,8 @@ export class DeliveryDashGame {
       this.boardNote = rank ? `You placed #${rank} with ${result.distance}m!` : 'Score submitted!';
       this.find('[data-live-status]').textContent = this.boardNote;
       this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
-    } catch {
-      this.boardNote = 'Couldn’t reach the leaderboard. Try again.';
+    } catch (error) {
+      this.boardNote = error instanceof Error && error.message.includes('(400)') ? 'That name was rejected. Try a different one.' : 'Couldn’t reach the leaderboard. Try again.';
     } finally {
       this.submitting = false; button.disabled = false;
       if (!this.destroyed) this.renderBoard();

@@ -7,7 +7,12 @@ export interface ScoreRow { id: number; nickname: string; distance: number; gift
 const SUPABASE_URL = 'https://jrfblescrprjndybqkog.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyZmJsZXNjcnByam5keWJxa29nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyOTczMzYsImV4cCI6MjEwNjg3MzMzNn0.gkr5RDt8qcqTN2juJP0dxSW4DVPyRMkjTuj84g6gDMM';
 const REQUEST_TIMEOUT_MS = 8000;
-const BLOCKED_WORDS = ['fuck', 'shit', 'cunt', 'bitch', 'nigg', 'fag', 'rape', 'nazi', 'whore', 'slut', 'dick', 'cock', 'pussy'];
+
+// Long, unambiguous words match anywhere in the name; short ones only as whole words
+// so names like "Grapes" or "Dickens" stay allowed. Keep in sync with is_clean_name in Supabase.
+const BLOCKED_SUBSTRINGS = ['fuck', 'shit', 'cunt', 'bitch', 'nigger', 'nigga', 'faggot', 'whore', 'pussy', 'bollock', 'retard', 'asshole', 'dickhead', 'cocksuck', 'motherf', 'bastard', 'hitler', 'porn', 'http'];
+const BLOCKED_WORDS = ['rape', 'rapist', 'nazi', 'dick', 'cock', 'slut', 'tit', 'tits', 'ass', 'cum', 'anal', 'sex', 'fag', 'paki', 'coon', 'kike', 'spic', 'twat', 'piss', 'wank'];
+const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b', '@': 'a', '$': 's', '!': 'i', '+': 't', '|': 'i' };
 
 export const MIN_SCORE_DISTANCE = 20;
 
@@ -25,11 +30,26 @@ const request = async (path: string, init: RequestInit = {}): Promise<Response> 
   } finally { clearTimeout(timer); }
 };
 
+const squashRepeats = (text: string): string => text.replace(/(.)\1+/g, '$1');
+
+const normalise = (text: string): string => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
+  .replace(/[0134578@$!+|]/g, character => LEET[character] ?? character);
+
+export const isProfane = (text: string): boolean => {
+  const normalised = normalise(text);
+  const letters = normalised.replace(/[^a-z]/g, '').replace(/scunthorpe/g, '');
+  // Stretched letters ("fuuuck") and separators ("s.h.i.t") are both caught.
+  const squashed = squashRepeats(letters);
+  if (BLOCKED_SUBSTRINGS.some(word => letters.includes(word) || squashed.includes(squashRepeats(word)))) return true;
+  return normalised.split(/[^a-z]+/).some(word => BLOCKED_WORDS.includes(word));
+};
+
+/** Any characters are allowed (any language, emoji); profanity and control characters are not. */
 export const cleanNickname = (raw: string): string | null => {
   const nickname = raw.replace(/\s+/g, ' ').trim();
-  if (nickname.length < 2 || nickname.length > 16 || !/^[\p{L}\p{N} ._-]+$/u.test(nickname)) return null;
-  const squashed = nickname.toLowerCase().replace(/[^a-z]/g, '');
-  return BLOCKED_WORDS.some(word => squashed.includes(word)) ? null : nickname;
+  const length = Array.from(nickname).length;
+  if (length < 2 || length > 16 || /[\p{Cc}\p{Cf}\p{Co}\p{Cn}]/u.test(nickname) || isProfane(nickname)) return null;
+  return nickname;
 };
 
 export const fetchTopScores = async (limit = 5): Promise<ScoreRow[]> =>
