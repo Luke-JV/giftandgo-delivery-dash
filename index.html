@@ -343,10 +343,45 @@ const REWARD_CATALOG = {
         icon: `<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m10 8 6 4-6 4z" style="fill:var(--accent)"/>`,
     },
 };
+const PLAIN_GIFT_PALETTE = {
+    outline: '#C69F65', front: '#F8EBCB', side: '#D9C397', lid: '#FDF5DE', lidSide: '#B77518',
+    ribbon: '#ED8B00', ribbonHighlight: '#FFB843', bow: '#E78C14', bowLight: '#FFB13A', bowHighlight: '#FFE4A5', knot: '#D27400',
+};
+const GIFT_VARIANT_PALETTES = {
+    blue: {
+        outline: '#6D93C4', front: '#BFD9F5', side: '#8FB2DE', lid: '#E3EFFC', lidSide: '#4F78B0',
+        ribbon: '#1F6FD1', ribbonHighlight: '#6FB1FF', bow: '#1F5FB5', bowLight: '#4D95EE', bowHighlight: '#BFE0FF', knot: '#143F7A',
+    },
+    green: {
+        outline: '#6FA76D', front: '#C9EBC8', side: '#97C995', lid: '#E6F6E4', lidSide: '#4E8F4C',
+        ribbon: '#1E9B4A', ribbonHighlight: '#6FD98F', bow: '#177A38', bowLight: '#35B862', bowHighlight: '#B8F2C6', knot: '#0F5527',
+    },
+    purple: {
+        outline: '#8C6FB8', front: '#DCCBF0', side: '#B49CD6', lid: '#F0E6FA', lidSide: '#6C4BA0',
+        ribbon: '#7B3FD0', ribbonHighlight: '#C196FF', bow: '#5E2AA8', bowLight: '#9A63F0', bowHighlight: '#E4CCFF', knot: '#401B78',
+    },
+    pink: {
+        outline: '#C77A9B', front: '#F8D3E2', side: '#E0A3BD', lid: '#FDE9F1', lidSide: '#B04A78',
+        ribbon: '#E0307A', ribbonHighlight: '#FF86B5', bow: '#C21E62', bowLight: '#F0569A', bowHighlight: '#FFC9DE', knot: '#8E1048',
+    },
+};
+const GIFT_VARIANT_TOASTS = {
+    blue: 'Blue gift! Double points',
+    green: 'Green gift! Nitro refilled',
+    purple: 'Purple gift! Five times the points',
+    pink: 'Pink gift! Double points and a shield',
+};
 
 const COUPON_REWARDS = ['ghost', 'jackpot', 'rain'];
 /** Freeplay cashes in every gift point at the current multiplier; it needs at least this many. */
 const FREEPLAY_MINIMUM = 10;
+const GIFT_VARIANTS = [
+    { variant: 'blue', chance: 0.1, multiplier: 2 },
+    { variant: 'green', chance: 0.06, multiplier: 1 },
+    { variant: 'purple', chance: 0.03, multiplier: 5 },
+    { variant: 'pink', chance: 0.02, multiplier: 2 },
+];
+const SHIELD_LIMIT = 3;
 /** Consecutive route gifts needed for each multiplier step: x1, x2, ... x8. */
 const MULTIPLIER_TIERS = [0, 5, 10, 20, 30, 40, 50, 60];
 const DELIVERY_BONUS = 100;
@@ -395,6 +430,7 @@ class DeliveryDashEngine {
         this.lastGain = 0;
         this.lastGainAt = -100;
         this.lastChainBreak = null;
+        this.lastBonusGift = null;
         this.nextDeliveryAt = 20;
         this.lastPowerpupAt = -100;
         this.nextPowerpupAt = 35;
@@ -468,6 +504,7 @@ class DeliveryDashEngine {
         this.score = this.chain = this.deliveries = this.deliveriesMissed = this.lastGain = 0;
         this.maxMultiplier = 1;
         this.lastChainBreak = null;
+        this.lastBonusGift = null;
         this.delivery = null;
         this.lastDelivery = null;
         this.nextDeliveryAt = 20;
@@ -514,6 +551,28 @@ class DeliveryDashEngine {
     get pointsPerGift() {
         return this.jackpotUntil > this.elapsed ? 50 : 10 + 5 * this.loyaltyLevel;
     }
+    giftMultiplier(variant) {
+        return GIFT_VARIANTS.find(rule => rule.variant === variant)?.multiplier ?? 1;
+    }
+    applyGiftVariant(variant) {
+        if (variant === 'green') {
+            this.boostMeter = 1;
+            this.boostLocked = false;
+        }
+        if (variant === 'pink')
+            this.shields = Math.min(SHIELD_LIMIT, this.shields + 1);
+        this.lastBonusGift = { variant, at: this.elapsed };
+    }
+    /** One roll per route gift; a shield gift is never offered to a full set of shields. */
+    rollGiftVariant() {
+        let roll = this.random();
+        for (const rule of GIFT_VARIANTS) {
+            if (roll < rule.chance)
+                return rule.variant === 'pink' && this.shields >= SHIELD_LIMIT ? undefined : rule.variant;
+            roll -= rule.chance;
+        }
+        return undefined;
+    }
     /** Nitro tank capacity in seconds of boost. */
     get nitroSeconds() { return 3 + this.nitroLevel; }
     /** Every coupon reward, in a shuffled order. */
@@ -533,7 +592,7 @@ class DeliveryDashEngine {
     shopCost(item) {
         const costs = SHOP_ITEMS.find(entry => entry.item === item)?.costs ?? [];
         if (item === 'shield')
-            return this.shields < 3 ? costs[0] : null;
+            return this.shields < SHIELD_LIMIT ? costs[0] : null;
         if (item === 'freeplay')
             return Math.max(FREEPLAY_MINIMUM, this.giftPoints);
         return costs[this.owned(item)] ?? null;
@@ -649,12 +708,15 @@ class DeliveryDashEngine {
                 break;
             }
             else if (e.kind === 'gift') {
+                const points = this.pointsPerGift * this.giftMultiplier(e.variant);
                 this.gifts++;
-                this.giftPoints += this.pointsPerGift;
-                this.pointsEarned += this.pointsPerGift;
+                this.giftPoints += points;
+                this.pointsEarned += points;
                 this.lastPickupAt = this.elapsed;
                 this.extendChain(1);
-                this.addScore(this.pointsPerGift * this.multiplier);
+                this.addScore(points * this.multiplier);
+                if (e.variant)
+                    this.applyGiftVariant(e.variant);
             }
             else if (e.kind === 'delivery')
                 this.completeDelivery();
@@ -935,7 +997,7 @@ class DeliveryDashEngine {
             this.entities.push({ id: this.nextId++, row: this.row, lane: specialLane, z, kind: couponRow ? 'coupon' : 'powerpup', handled: false });
         this.row++;
         if (this.safeLane !== bayLane)
-            this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow) });
+            this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow), variant: this.rollGiftVariant() });
     }
 }
 
@@ -1060,6 +1122,7 @@ class DeliveryDashGame {
         this.lastGainAt = -100;
         this.lastDeliveryAt = -100;
         this.lastPowerpupAt = -100;
+        this.lastBonusGiftAt = -100;
         this.lastChainBreakAt = -100;
         this.lastMultiplier = 1;
         this.streakFlashUntil = 0;
@@ -1295,6 +1358,7 @@ class DeliveryDashGame {
         this.lastGainAt = this.engine.lastGainAt;
         this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
         this.lastPowerpupAt = this.engine.lastPowerpupAt;
+        this.lastBonusGiftAt = this.engine.lastBonusGift?.at ?? -100;
         this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
         this.lastMultiplier = this.engine.multiplier;
         this.deliveryKey = '';
@@ -1609,6 +1673,13 @@ class DeliveryDashGame {
             this.find('[data-live-status]').textContent = text;
         }
         this.lastDeliveryAt = outcome?.at ?? -100;
+        const bonusGift = engine.lastBonusGift;
+        if (bonusGift && bonusGift.at > this.lastBonusGiftAt) {
+            const text = `${GIFT_VARIANT_TOASTS[bonusGift.variant]} +${engine.lastGain}`;
+            this.showToast(text);
+            this.find('[data-live-status]').textContent = text;
+        }
+        this.lastBonusGiftAt = bonusGift?.at ?? -100;
         if (engine.lastGainAt > this.lastGainAt && !this.toastLocked) {
             this.find('[data-toast]').textContent = `+${engine.lastGain}`;
             this.toastUntil = engine.elapsed + 0.85;
@@ -2383,19 +2454,26 @@ class DeliveryDashGame {
                 }
         }
         else {
-            // Warm wrapping and a large orange bow make gifts distinct from roadworks.
-            poly('#C69F65', [[-16, -25], [-11, -31], [18, -31], [18, -5], [13, 0], [-16, 0]]);
-            r('#F8EBCB', -16, -25, 29, 25);
-            r('#D9C397', 13, -25, 5, 25);
-            r('#FDF5DE', -18, -28, 33, 6);
-            r('#B77518', 15, -28, 5, 6);
-            r('#ED8B00', -4, -29, 7, 29);
-            r('#FFB843', -3, -29, 2, 29);
-            poly('#E78C14', [[-2, -29], [-15, -34], [-13, -41], [-5, -39], [0, -31]]);
-            poly('#FFB13A', [[1, -30], [6, -40], [14, -40], [16, -34], [4, -28]]);
-            r('#FFE4A5', -11, -37, 4, 3);
-            r('#FFE4A5', 8, -37, 4, 3);
-            r('#D27400', -3, -32, 7, 5);
+            // Warm wrapping and a large orange bow make gifts distinct from roadworks; coloured gifts swap the palette.
+            const palette = e.variant ? GIFT_VARIANT_PALETTES[e.variant] : PLAIN_GIFT_PALETTE;
+            poly(palette.outline, [[-16, -25], [-11, -31], [18, -31], [18, -5], [13, 0], [-16, 0]]);
+            r(palette.front, -16, -25, 29, 25);
+            r(palette.side, 13, -25, 5, 25);
+            r(palette.lid, -18, -28, 33, 6);
+            r(palette.lidSide, 15, -28, 5, 6);
+            r(palette.ribbon, -4, -29, 7, 29);
+            r(palette.ribbonHighlight, -3, -29, 2, 29);
+            poly(palette.bow, [[-2, -29], [-15, -34], [-13, -41], [-5, -39], [0, -31]]);
+            poly(palette.bowLight, [[1, -30], [6, -40], [14, -40], [16, -34], [4, -28]]);
+            r(palette.bowHighlight, -11, -37, 4, 3);
+            r(palette.bowHighlight, 8, -37, 4, 3);
+            r(palette.knot, -3, -32, 7, 5);
+            if (e.variant && !this.motion.matches)
+                for (let index = 0; index < 3; index++) {
+                    const twinkle = Math.sin(this.engine.elapsed * 6 + e.id * 2 + index * 2.1);
+                    if (twinkle > 0.2)
+                        r(palette.bowHighlight, [-24, 22, 2][index], [-30, -36, -52][index], 4, 4);
+                }
         }
     }
     /** The Snappy mascot sprite in a pulsing glow, circled by message icons. */
