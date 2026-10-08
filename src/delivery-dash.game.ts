@@ -23,6 +23,7 @@ const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 2
 /** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
 const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
 const FERRARI_SIGNAL_RATE = 9;
+const FERRARI_SIZE = 1.25;
 const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
 const TUNNEL_HEIGHT = 112;
@@ -763,6 +764,9 @@ export class DeliveryDashGame {
     return { x: this.roadCentre(scale) + lateral * scale, y: 40 + (this.sceneHeight - 40) * scale, scale };
   }
 
+  /** Whether a ground point has driven past the bottom edge; the edge moves with the canvas height in fullscreen. */
+  private pastBottom(y: number): boolean { return y > this.sceneHeight + 35; }
+
   private roadCentre(depth: number): number {
     const time = this.engine.elapsed;
     const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
@@ -942,7 +946,7 @@ export class DeliveryDashGame {
 
   private slotEntity(e: RoadEntity): void {
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
-    if (p.y > 265) return;
+    if (this.pastBottom(p.y)) return;
     const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
     const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
     const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, p.x + dx * s, p.y + (dy + bob) * s, w * s, h * s);
@@ -1208,7 +1212,7 @@ export class DeliveryDashGame {
   private painter(lateral: number, z: number) {
     const p = this.project(lateral, z), s = p.scale;
     return {
-      visible: p.y <= this.sceneHeight + 35,
+      visible: !this.pastBottom(p.y),
       r: (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, p.x + dx * s, p.y + dy * s, w * s, h * s),
       poly: (color: string, points: number[][]) => this.polygon(color, points.map(([dx, dy]) => [p.x + dx * s, p.y + dy * s])),
     };
@@ -1296,15 +1300,15 @@ export class DeliveryDashGame {
     return hazard ? { ...base, hazard } : { ...base, glowLateral: lateral };
   }
 
-  private spriteBox(name: string, lateral: number, z: number, plane = false): SpriteBox | null {
+  private spriteBox(name: string, lateral: number, z: number, plane = false, size = 1): SpriteBox | null {
     const image = this.scenery[name], p = this.project(lateral, z);
-    if (!image || p.y > this.sceneHeight + 35) return null;
-    const w = Math.max(1, Math.round(image.width * p.scale)), h = Math.max(1, Math.round(image.height * p.scale));
-    return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale: p.scale, baseX: p.x, baseY: p.y };
+    if (!image || this.pastBottom(p.y)) return null;
+    const scale = p.scale * size, w = Math.max(1, Math.round(image.width * scale)), h = Math.max(1, Math.round(image.height * scale));
+    return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale, baseX: p.x, baseY: p.y };
   }
 
-  private drawSprite(name: string, lateral: number, z: number, options: { shadow?: boolean; plane?: boolean; flip?: boolean; lift?: number } = {}): SpriteBox | null {
-    const box = this.spriteBox(name, lateral, z, options.plane);
+  private drawSprite(name: string, lateral: number, z: number, options: { shadow?: boolean; plane?: boolean; flip?: boolean; lift?: number; size?: number } = {}): SpriteBox | null {
+    const box = this.spriteBox(name, lateral, z, options.plane, options.size);
     if (!box) return null;
     const c = this.ctx, y = box.y - Math.round((options.lift ?? 0) * box.scale);
     if (options.shadow) this.rect('#34424C', box.baseX - box.w * 0.46, box.baseY - box.scale, box.w * 0.92, 4 * box.scale);
@@ -1314,8 +1318,8 @@ export class DeliveryDashGame {
   }
 
   /** Flashing lamps over a sprite: bright amber with a halo while lit. */
-  private flashLamps(name: string, lateral: number, z: number, lamps: readonly (readonly number[])[], phase: number, rate = 3.4): void {
-    const box = this.spriteBox(name, lateral, z);
+  private flashLamps(name: string, lateral: number, z: number, lamps: readonly (readonly number[])[], phase: number, rate = 3.4, size = 1): void {
+    const box = this.spriteBox(name, lateral, z, false, size);
     if (!box) return;
     const c = this.ctx, lit = this.motion.matches || Math.floor(this.engine.elapsed * rate + phase) % 2 === 0, base = c.globalAlpha;
     if (!lit) return;
@@ -1335,8 +1339,8 @@ export class DeliveryDashGame {
   /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
   private ferrari(e: RoadEntity): void {
     const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
-    this.drawSprite('ferrari', lateral, e.z, { shadow: true });
-    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE);
+    this.drawSprite('ferrari', lateral, e.z, { shadow: true, size: FERRARI_SIZE });
+    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE, FERRARI_SIZE);
   }
 
   private maintenanceTruck(lateral: number, z: number): void { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
@@ -1503,7 +1507,7 @@ export class DeliveryDashGame {
     if (e.kind === 'puddle') { this.puddle(e); return; }
     if (e.kind === 'gantry') { this.gantry(e); return; }
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
-    if (p.y > 265) return;
+    if (this.pastBottom(p.y)) return;
     const s = p.scale, x = p.x, y = p.y;
     const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, x + dx * s, y + dy * s, w * s, h * s);
     const poly = (color: string, points: number[][]) => this.polygon(color, points.map(([dx, dy]) => [x + dx * s, y + dy * s]));
@@ -1596,7 +1600,7 @@ export class DeliveryDashGame {
   private powerpup(e: RoadEntity): void {
     const sprite = this.scenery['snappy'];
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
-    if (!sprite || p.y > 265) return;
+    if (!sprite || this.pastBottom(p.y)) return;
     const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
     const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
     c.globalAlpha = (calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6)) * this.entityAlpha;
@@ -1630,7 +1634,7 @@ export class DeliveryDashGame {
     const body = this.scenery['giftasaurusBody'], extension = this.engine.biteExtension(e);
     const head = this.scenery[this.engine.biteStage(e) === 'lean' ? 'giftasaurusOpen' : 'giftasaurusClosed'];
     const p = this.project(0, e.z), s = p.scale, c = this.ctx, calm = this.motion.matches;
-    if (!body || !head || p.y > 265) return;
+    if (!body || !head || this.pastBottom(p.y)) return;
     const { bodyTilt, headTurn, unit, pivot } = this.giftasaurusPose(extension);
     // Bobblehead: the head nods on its neck while it waits, and holds still while biting.
     const nod = calm ? 0 : Math.sin(this.engine.elapsed * 7 + e.id) * 0.08 * (1 - extension);
@@ -1655,7 +1659,7 @@ export class DeliveryDashGame {
   private crane(e: RoadEntity): void {
     const body = this.scenery['craneBody'], ball = this.scenery['craneBall'];
     const p = this.project(0, e.z), c = this.ctx;
-    if (!body || !ball || p.y > 265 || p.scale > 2) return;
+    if (!body || !ball || this.pastBottom(p.y) || p.scale > 2) return;
     const ballLane = this.engine.craneBall(e), lateral = (ballLane - 1) * LANE_WIDTH;
     const angle = Math.asin(Math.max(-1, Math.min(1, lateral / CRANE_CHAIN)));
     const height = (body.naturalHeight - CRANE_PIVOT.y) * CRANE_UNIT, swing = CRANE_CHAIN * Math.cos(angle);
