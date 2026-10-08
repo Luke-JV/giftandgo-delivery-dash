@@ -11,8 +11,8 @@ export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'cou
 /** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `length` is how far a roadworks closure runs beyond `z`. `biteAt` is when a Giftasaurus bite cycle starts. */
 export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; length?: number; biteAt?: number; }
 export interface RunResult { score: number; distance: number; gifts: number; giftPoints: number; coupons: number; spent: number; duration: number; maxMultiplier: number; deliveries: number; deliveriesMissed: number; }
-/** `incoming` warns the player, `active` has a bay on the road against the clock, `expired` is a missed clock with the bay still ahead. */
-export interface DeliveryRequest { lane: number; phase: 'incoming' | 'active' | 'expired'; spawnAt: number; deadline: number; window: number; }
+/** `pending` holds the lane unannounced until its obstacles pass, `incoming` warns the player, `active` has a bay on the road against the clock, `expired` is a missed clock with the bay still ahead. */
+export interface DeliveryRequest { lane: number; phase: 'pending' | 'incoming' | 'active' | 'expired'; spawnAt: number; deadline: number; window: number; }
 export interface DeliveryOutcome { success: boolean; amount: number; at: number; }
 /** Consecutive route gifts needed for each multiplier step: x1, x2, ... x8. */
 export const MULTIPLIER_TIERS: readonly number[] = [0, 5, 10, 20, 30, 40, 50, 60];
@@ -381,11 +381,20 @@ export class DeliveryDashEngine {
 
   private scheduleDelivery(): void { this.nextDeliveryAt = this.elapsed + 25 + this.random() * 15; }
 
-  /** Start a request when a shop or coupon is not about to claim the road, and expire a request that ran out of time. */
+  /**
+   * Reserve a lane when a shop or coupon is not about to claim the road, announce it once the obstacles
+   * already in it have passed, and expire a request that ran out of time. A reserved lane gets no new
+   * obstacles until its bay passes, so chasing a delivery can cost points but never the run.
+   */
   private updateDelivery(): void {
     if (!this.delivery) {
-      if (this.elapsed >= this.nextDeliveryAt && !this.entities.some(e => e.kind === 'roadworks') && !this.onBridge(this.elapsed + DELIVERY_WARNING) && this.nextShopAt - this.elapsed > 3 && this.nextCouponAt - this.elapsed > 3) {
-        this.delivery = { lane: this.random() < 0.5 ? 0 : 2, phase: 'incoming', spawnAt: this.elapsed + DELIVERY_WARNING, deadline: 0, window: 0 };
+      if (this.elapsed >= this.nextDeliveryAt && !this.entities.some(e => e.kind === 'roadworks') && !this.onBridge(this.elapsed + BAY_LEAD_SECONDS + DELIVERY_WARNING) && this.nextShopAt - this.elapsed > 3 && this.nextCouponAt - this.elapsed > 3) {
+        this.delivery = { lane: this.random() < 0.5 ? 0 : 2, phase: 'pending', spawnAt: 0, deadline: 0, window: 0 };
+      }
+    } else if (this.delivery.phase === 'pending') {
+      const lane = this.delivery.lane;
+      if (!this.entities.some(e => (isHazard(e.kind) || e.kind === 'roadworks') && e.lane === lane && e.z + (e.length ?? 0) > 40)) {
+        this.delivery = { ...this.delivery, phase: 'incoming', spawnAt: this.elapsed + DELIVERY_WARNING };
       }
     } else if (this.delivery.phase === 'active' && this.elapsed > this.delivery.deadline) {
       this.missDelivery();
@@ -513,8 +522,10 @@ export class DeliveryDashEngine {
       else this.nextPowerpupAt = this.elapsed + 50 + this.random() * 40;
       this.pattern = 'single';
     }
-    const blocked = shopRow || deliveryRow || transition || open.length < 2 ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' ? others : [others[Math.floor(this.random() * others.length)]];
     const deliveryLane = this.delivery?.lane ?? -1;
+    // A delivery's lane stays clear from reservation until its bay passes.
+    const hazardLanes = others.filter(l => l !== deliveryLane);
+    const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
     const bayLane = shopRow ? shopLane : deliveryRow ? deliveryLane : -1;
     for (const lane of blocked) {
       const kinds: EntityKind[] = this.row < 3 ? ['cone', 'barrier'] : ['cone', 'barrier', 'drum', 'pothole'];
