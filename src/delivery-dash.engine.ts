@@ -7,12 +7,23 @@ export type GiftReward = CouponReward | ShopItem;
 export const COUPON_REWARDS: readonly CouponReward[] = ['ghost', 'jackpot', 'rain'];
 /** Freeplay cashes in every gift point at the current multiplier; it needs at least this many. */
 export const FREEPLAY_MINIMUM = 10;
+/** Coloured gifts sit in place of a plain route gift: blue pays double, green refills the nitro tank, purple pays five times, pink pays double and adds a shield. */
+export type GiftVariant = 'blue' | 'green' | 'purple' | 'pink';
+export interface GiftVariantRule { variant: GiftVariant; chance: number; multiplier: number; }
+export const GIFT_VARIANTS: readonly GiftVariantRule[] = [
+  { variant: 'blue', chance: 0.1, multiplier: 2 },
+  { variant: 'green', chance: 0.06, multiplier: 1 },
+  { variant: 'purple', chance: 0.03, multiplier: 5 },
+  { variant: 'pink', chance: 0.02, multiplier: 2 },
+];
+export const SHIELD_LIMIT = 3;
 export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'coupon' | 'shop' | 'delivery' | 'roadworks' | 'powerpup' | 'giftasaurus';
-/** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `length` is how far a roadworks closure runs beyond `z`. `biteAt` is when a Giftasaurus bite cycle starts. */
-export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; length?: number; biteAt?: number; }
+/** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `variant` makes it a coloured gift with a different reward. `length` is how far a roadworks closure runs beyond `z`. `biteAt` is when a Giftasaurus bite cycle starts. */
+export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; variant?: GiftVariant; length?: number; biteAt?: number; }
 export interface RunResult { score: number; distance: number; gifts: number; giftPoints: number; coupons: number; spent: number; duration: number; maxMultiplier: number; deliveries: number; deliveriesMissed: number; }
 /** `pending` holds the lane unannounced until its obstacles pass, `incoming` warns the player, `active` has a bay on the road against the clock, `expired` is a missed clock with the bay still ahead. */
 export interface DeliveryRequest { lane: number; phase: 'pending' | 'incoming' | 'active' | 'expired'; spawnAt: number; deadline: number; window: number; }
+export interface BonusGiftPickup { variant: GiftVariant; at: number; }
 export interface DeliveryOutcome { success: boolean; amount: number; at: number; }
 /** A streak that just ended: when, the multiplier it had reached and how many gifts long it was. */
 export interface ChainBreak { at: number; lostMultiplier: number; chain: number; }
@@ -64,6 +75,7 @@ export class DeliveryDashEngine {
   lastGain = 0;
   lastGainAt = -100;
   lastChainBreak: ChainBreak | null = null;
+  lastBonusGift: BonusGiftPickup | null = null;
   private nextDeliveryAt = 20;
   lastPowerpupAt = -100;
   private nextPowerpupAt = 35;
@@ -137,7 +149,7 @@ export class DeliveryDashEngine {
   start(): void {
     this.distance = this.elapsed = this.gifts = this.row = this.nextId = 0;
     this.score = this.chain = this.deliveries = this.deliveriesMissed = this.lastGain = 0;
-    this.maxMultiplier = 1; this.lastChainBreak = null; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
+    this.maxMultiplier = 1; this.lastChainBreak = null; this.lastBonusGift = null; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
     this.lastPowerpupAt = -100; this.nextPowerpupAt = 35 + this.random() * 30;
     this.nextGiftasaurusAt = 45 + this.random() * 20;
     this.spawnIn = 1.6;
@@ -172,6 +184,26 @@ export class DeliveryDashEngine {
     return this.jackpotUntil > this.elapsed ? 50 : 10 + 5 * this.loyaltyLevel;
   }
 
+  private giftMultiplier(variant: GiftVariant | undefined): number {
+    return GIFT_VARIANTS.find(rule => rule.variant === variant)?.multiplier ?? 1;
+  }
+
+  private applyGiftVariant(variant: GiftVariant): void {
+    if (variant === 'green') { this.boostMeter = 1; this.boostLocked = false; }
+    if (variant === 'pink') this.shields = Math.min(SHIELD_LIMIT, this.shields + 1);
+    this.lastBonusGift = { variant, at: this.elapsed };
+  }
+
+  /** One roll per route gift; a shield gift is never offered to a full set of shields. */
+  private rollGiftVariant(): GiftVariant | undefined {
+    let roll = this.random();
+    for (const rule of GIFT_VARIANTS) {
+      if (roll < rule.chance) return rule.variant === 'pink' && this.shields >= SHIELD_LIMIT ? undefined : rule.variant;
+      roll -= rule.chance;
+    }
+    return undefined;
+  }
+
   /** Nitro tank capacity in seconds of boost. */
   get nitroSeconds(): number { return 3 + this.nitroLevel; }
 
@@ -193,7 +225,7 @@ export class DeliveryDashEngine {
   /** Price of the next level, or null when sold out. Shields restock as they are used, up to three. Freeplay costs the whole balance. */
   shopCost(item: ShopItem): number | null {
     const costs = SHOP_ITEMS.find(entry => entry.item === item)?.costs ?? [];
-    if (item === 'shield') return this.shields < 3 ? costs[0] : null;
+    if (item === 'shield') return this.shields < SHIELD_LIMIT ? costs[0] : null;
     if (item === 'freeplay') return Math.max(FREEPLAY_MINIMUM, this.giftPoints);
     return costs[this.owned(item)] ?? null;
   }
@@ -290,11 +322,13 @@ export class DeliveryDashEngine {
         this.state = 'reward';
         break;
       } else if (e.kind === 'gift') {
+        const points = this.pointsPerGift * this.giftMultiplier(e.variant);
         this.gifts++;
-        this.giftPoints += this.pointsPerGift; this.pointsEarned += this.pointsPerGift;
+        this.giftPoints += points; this.pointsEarned += points;
         this.lastPickupAt = this.elapsed;
         this.extendChain(1);
-        this.addScore(this.pointsPerGift * this.multiplier);
+        this.addScore(points * this.multiplier);
+        if (e.variant) this.applyGiftVariant(e.variant);
       } else if (e.kind === 'delivery') this.completeDelivery();
       else if (e.kind === 'powerpup') { this.addScore(POWERPUP_BONUS * this.multiplier); this.lastPowerpupAt = this.elapsed; }
       else if (this.invulnerableUntil > this.elapsed || this.ghostUntil > this.elapsed) continue;
@@ -548,6 +582,6 @@ export class DeliveryDashEngine {
     if (deliveryRow) this.entities.push({ id: this.nextId++, row: this.row, lane: deliveryLane, z, kind: 'delivery', handled: false });
     if (couponRow || powerpupRow) this.entities.push({ id: this.nextId++, row: this.row, lane: specialLane, z, kind: couponRow ? 'coupon' : 'powerpup', handled: false });
     this.row++;
-    if (this.safeLane !== bayLane) this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow) });
+    if (this.safeLane !== bayLane) this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow), variant: this.rollGiftVariant() });
   }
 }

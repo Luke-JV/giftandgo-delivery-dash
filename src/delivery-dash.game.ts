@@ -1,6 +1,6 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
 import { BITE_REACH, DeliveryDashEngine, GameState, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS } from './delivery-dash.engine';
-import { REWARD_CATALOG } from './delivery-dash.rewards';
+import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG } from './delivery-dash.rewards';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -34,6 +34,7 @@ export class DeliveryDashGame {
   private lastGainAt = -100;
   private lastDeliveryAt = -100;
   private lastPowerpupAt = -100;
+  private lastBonusGiftAt = -100;
   private lastChainBreakAt = -100;
   private lastMultiplier = 1;
   private streakFlashUntil = 0;
@@ -220,6 +221,7 @@ export class DeliveryDashGame {
     this.lastGainAt = this.engine.lastGainAt;
     this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
     this.lastPowerpupAt = this.engine.lastPowerpupAt;
+    this.lastBonusGiftAt = this.engine.lastBonusGift?.at ?? -100;
     this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
     this.lastMultiplier = this.engine.multiplier;
     this.deliveryKey = '';
@@ -477,6 +479,13 @@ export class DeliveryDashGame {
       this.find('[data-live-status]').textContent = text;
     }
     this.lastDeliveryAt = outcome?.at ?? -100;
+    const bonusGift = engine.lastBonusGift;
+    if (bonusGift && bonusGift.at > this.lastBonusGiftAt) {
+      const text = `${GIFT_VARIANT_TOASTS[bonusGift.variant]} +${engine.lastGain}`;
+      this.showToast(text);
+      this.find('[data-live-status]').textContent = text;
+    }
+    this.lastBonusGiftAt = bonusGift?.at ?? -100;
     if (engine.lastGainAt > this.lastGainAt && !this.toastLocked) {
       this.find('[data-toast]').textContent = `+${engine.lastGain}`;
       this.toastUntil = engine.elapsed + 0.85;
@@ -1098,15 +1107,20 @@ export class DeliveryDashGame {
         r(i % 2 ? '#FFFFFF' : '#FFE08A', Math.cos(angle) * radius, cy + Math.sin(angle) * radius * 0.7, 3, 3);
       }
     } else {
-      // Warm wrapping and a large orange bow make gifts distinct from roadworks.
-      poly('#C69F65', [[-16, -25], [-11, -31], [18, -31], [18, -5], [13, 0], [-16, 0]]);
-      r('#F8EBCB', -16, -25, 29, 25); r('#D9C397', 13, -25, 5, 25);
-      r('#FDF5DE', -18, -28, 33, 6); r('#B77518', 15, -28, 5, 6);
-      r('#ED8B00', -4, -29, 7, 29); r('#FFB843', -3, -29, 2, 29);
-      poly('#E78C14', [[-2, -29], [-15, -34], [-13, -41], [-5, -39], [0, -31]]);
-      poly('#FFB13A', [[1, -30], [6, -40], [14, -40], [16, -34], [4, -28]]);
-      r('#FFE4A5', -11, -37, 4, 3); r('#FFE4A5', 8, -37, 4, 3);
-      r('#D27400', -3, -32, 7, 5);
+      // Warm wrapping and a large orange bow make gifts distinct from roadworks; coloured gifts swap the palette.
+      const palette = e.variant ? GIFT_VARIANT_PALETTES[e.variant] : PLAIN_GIFT_PALETTE;
+      poly(palette.outline, [[-16, -25], [-11, -31], [18, -31], [18, -5], [13, 0], [-16, 0]]);
+      r(palette.front, -16, -25, 29, 25); r(palette.side, 13, -25, 5, 25);
+      r(palette.lid, -18, -28, 33, 6); r(palette.lidSide, 15, -28, 5, 6);
+      r(palette.ribbon, -4, -29, 7, 29); r(palette.ribbonHighlight, -3, -29, 2, 29);
+      poly(palette.bow, [[-2, -29], [-15, -34], [-13, -41], [-5, -39], [0, -31]]);
+      poly(palette.bowLight, [[1, -30], [6, -40], [14, -40], [16, -34], [4, -28]]);
+      r(palette.bowHighlight, -11, -37, 4, 3); r(palette.bowHighlight, 8, -37, 4, 3);
+      r(palette.knot, -3, -32, 7, 5);
+      if (e.variant && !this.motion.matches) for (let index = 0; index < 3; index++) {
+        const twinkle = Math.sin(this.engine.elapsed * 6 + e.id * 2 + index * 2.1);
+        if (twinkle > 0.2) r(palette.bowHighlight, [-24, 22, 2][index], [-30, -36, -52][index], 4, 4);
+      }
     }
   }
 

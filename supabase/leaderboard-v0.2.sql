@@ -61,6 +61,7 @@ drop function if exists public.submit_score_v02(text, int, int, int, int, real, 
 
 -- Plausibility. Distance, gift and point limits are the same as v0.1. Score is capped by the most
 -- the rules can pay for a run of this length:
+--   gift points: a gift pays at most 250 (a purple x5 gift under a 50-point jackpot)
 --   gifts:       at most x8 the gift points earned (the multiplier tops out at x8)
 --   pace trickle: 1 point per second at the start, rising with pace, at x8: 8 * (t + 1.2 * t^2 / 86)
 --   deliveries:  at most one per 25s (the first needs about 20s), each worth 100 * 8
@@ -92,7 +93,7 @@ begin
     raise exception 'implausible distance';
   end if;
   if p_gifts > p_duration / 0.8 + 25 * (p_duration / 30 + 1)
-     or p_points > p_gifts * 50 + 100 * (p_duration / 30 + 1) then
+     or p_points > p_gifts * 250 + 100 * (p_duration / 30 + 1) then
     raise exception 'implausible gifts';
   end if;
   if p_deliveries > p_duration / 25 + 1 then raise exception 'implausible deliveries'; end if;

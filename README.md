@@ -50,6 +50,8 @@ success/error handling determine when the loading area is removed.
   beat a delivery clock (see below). On touch,
   hold BOOST with one thumb and steer with the arrows or by swiping with the other.
 - On the road, tap its left or right half to change one lane, or swipe horizontally.
+- Some route gifts are coloured: **blue** pays double, **green** refills the nitro tank, **purple** pays five times
+  and **pink** pays double and adds a shield (up to three). They count towards the chain like any other gift.
 - **Pause**, P, or Escape freezes the game; **Resume drive** continues it.
 - After a collision, **Drive again** resets the run.
 - The personal best score is stored locally under `giftgo-delivery-dash-best-score`.

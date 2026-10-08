@@ -1,4 +1,4 @@
-import { GiftReward } from './delivery-dash.engine';
+import { GiftReward, GiftVariant } from './delivery-dash.engine';
 
 export interface RewardDefinition {
   label: string;
@@ -43,4 +43,40 @@ export const REWARD_CATALOG: Record<GiftReward, RewardDefinition> = {
     label: 'Freeplay', description: 'Cash in all gift points for score at your multiplier', accent: '#E5A100', toast: 'Freeplay!',
     icon: `<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m10 8 6 4-6 4z" style="fill:var(--accent)"/>`,
   },
+};
+
+export interface GiftPalette {
+  outline: string; front: string; side: string; lid: string; lidSide: string;
+  ribbon: string; ribbonHighlight: string; bow: string; bowLight: string; bowHighlight: string; knot: string;
+}
+
+export const PLAIN_GIFT_PALETTE: GiftPalette = {
+  outline: '#C69F65', front: '#F8EBCB', side: '#D9C397', lid: '#FDF5DE', lidSide: '#B77518',
+  ribbon: '#ED8B00', ribbonHighlight: '#FFB843', bow: '#E78C14', bowLight: '#FFB13A', bowHighlight: '#FFE4A5', knot: '#D27400',
+};
+
+export const GIFT_VARIANT_PALETTES: Record<GiftVariant, GiftPalette> = {
+  blue: {
+    outline: '#6D93C4', front: '#BFD9F5', side: '#8FB2DE', lid: '#E3EFFC', lidSide: '#4F78B0',
+    ribbon: '#1F6FD1', ribbonHighlight: '#6FB1FF', bow: '#1F5FB5', bowLight: '#4D95EE', bowHighlight: '#BFE0FF', knot: '#143F7A',
+  },
+  green: {
+    outline: '#6FA76D', front: '#C9EBC8', side: '#97C995', lid: '#E6F6E4', lidSide: '#4E8F4C',
+    ribbon: '#1E9B4A', ribbonHighlight: '#6FD98F', bow: '#177A38', bowLight: '#35B862', bowHighlight: '#B8F2C6', knot: '#0F5527',
+  },
+  purple: {
+    outline: '#8C6FB8', front: '#DCCBF0', side: '#B49CD6', lid: '#F0E6FA', lidSide: '#6C4BA0',
+    ribbon: '#7B3FD0', ribbonHighlight: '#C196FF', bow: '#5E2AA8', bowLight: '#9A63F0', bowHighlight: '#E4CCFF', knot: '#401B78',
+  },
+  pink: {
+    outline: '#C77A9B', front: '#F8D3E2', side: '#E0A3BD', lid: '#FDE9F1', lidSide: '#B04A78',
+    ribbon: '#E0307A', ribbonHighlight: '#FF86B5', bow: '#C21E62', bowLight: '#F0569A', bowHighlight: '#FFC9DE', knot: '#8E1048',
+  },
+};
+
+export const GIFT_VARIANT_TOASTS: Record<GiftVariant, string> = {
+  blue: 'Blue gift! Double points',
+  green: 'Green gift! Nitro refilled',
+  purple: 'Purple gift! Five times the points',
+  pink: 'Pink gift! Double points and a shield',
 };
