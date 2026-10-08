@@ -144,7 +144,7 @@ const BITE_OVERLAP = 0.2;
  * change is finished FERRARI_SWAPS[2] - FERRARI_SWAP_SECONDS seconds before it arrives at the normal pace, so it never leaves
  * the truck without a clear lane to reach. Each change is signalled FERRARI_SIGNAL_SECONDS ahead by its indicator.
  */
-export const FERRARI_PACE = 0.8;
+export const FERRARI_PACE = 0.64;
 export const FERRARI_FLIGHT_SECONDS = 3.4;
 /** Seconds before reaching the truck, at the normal pace, at which each lane change starts to move. */
 export const FERRARI_SWAPS: readonly number[] = [2.7, 1.95, 1.3];
@@ -510,6 +510,8 @@ export class DeliveryDashEngine {
         this.giftPoints += points; this.pointsEarned += points;
         this.lastPickupAt = this.elapsed;
         this.extendChain(1);
+        // Any gift in a row keeps the chain, so a Gift Shoppe gift taken beside the route gift does not break it.
+        for (const o of this.entities) if (o !== e && o.route && o.row === e.row) o.route = false;
         this.addScore(points * this.multiplier);
         if (e.variant) this.applyGiftVariant(e.variant);
       } else if (e.kind === 'delivery') this.completeDelivery();
