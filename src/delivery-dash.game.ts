@@ -20,8 +20,8 @@ const TRUCK_LEAN_SETTLE_SECONDS = 0.08;
 const LANE_WIDTH = 260 / 3;
 /** Where the lamps sit in the embedded sprites, as [x, y, width, height] in sprite pixels. */
 const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 22, 5, 5]];
-/** The centres of the Ferrari's left and right headlights in sprite pixels, which its indicators flash over, and how fast they flash. */
-const FERRARI_LAMPS: readonly (readonly number[])[] = [[9, 45], [51, 45]];
+/** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
+const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
 const FERRARI_SIGNAL_RATE = 9;
 const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
@@ -1338,20 +1338,8 @@ export class DeliveryDashGame {
   /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
   private ferrari(e: RoadEntity): void {
     const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
-    const box = this.drawSprite('ferrari', lateral, e.z, { shadow: true });
-    if (!box) return;
-    // The headlight glow and the indicator keep a minimum size, so the car and its lane change read from far down the road.
-    const c = this.ctx, base = c.globalAlpha, blink = this.motion.matches || Math.floor(this.engine.elapsed * FERRARI_SIGNAL_RATE) % 2 === 0;
-    FERRARI_LAMPS.forEach(([lx, ly], side) => {
-      const signalling = signal !== null && side === (signal > lane ? 1 : 0);
-      if (signalling && !blink) return;
-      const cx = Math.round(box.x + lx * box.scale), cy = Math.round(box.y + ly * box.scale), radius = Math.max(signalling ? 4 : 2.5, (signalling ? 9 : 5) * box.scale);
-      c.globalAlpha = base * (signalling ? 0.6 : 0.3); c.fillStyle = signalling ? '#FFB000' : '#FFF3B0'; c.beginPath();
-      c.ellipse(cx, cy, radius, radius * 0.7, 0, 0, Math.PI * 2); c.fill();
-      c.globalAlpha = base;
-      if (signalling) this.rect('#FFC21A', cx - Math.max(3, 6 * box.scale) / 2, cy - Math.max(2, 4 * box.scale) / 2, Math.max(3, 6 * box.scale), Math.max(2, 4 * box.scale));
-    });
-    c.globalAlpha = base;
+    this.drawSprite('ferrari', lateral, e.z, { shadow: true });
+    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE);
   }
 
   private maintenanceTruck(lateral: number, z: number): void { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
