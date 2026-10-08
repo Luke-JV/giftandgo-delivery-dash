@@ -12,14 +12,36 @@
     <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts, and grab the rare golden coupon, as the pace increases."></canvas>
     <img class="dash-truck-logo" data-truck-logo alt="" aria-hidden="true" />
     <div class="dash-hud" aria-label="Run statistics">
-      <span class="dash-pill"><span data-distance>0</span><small>m</small></span>
-      <span class="dash-pill dash-pill-points">
+      <span class="dash-score">
+        <span class="dash-pill"><span data-score>0</span><small>pts</small><span class="dash-mult" data-multiplier>×1</span></span>
+        <span class="dash-chain" aria-hidden="true"><span data-chain-fill></span></span>
+      </span>
+      <span class="dash-pill dash-pill-points" aria-label="Gift points to spend at shops">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6h12v3H2zM3 9h10v5H3zM7 6h2v8H7z" fill="currentColor"/><path d="M8 6C6 2 3 3 4 6M8 6c2-4 5-3 4 0" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
         <span data-points>0</span>
       </span>
     </div>
     <div class="dash-perks" data-perks hidden></div>
+    <div class="dash-delivery" data-delivery hidden>
+      <span data-delivery-text></span>
+      <span class="dash-delivery-bar" aria-hidden="true"><span data-delivery-fill></span></span>
+    </div>
     <span class="dash-toast" data-toast hidden></span>
+    <span class="dash-snappy" data-snappy aria-hidden="true" hidden>SNAPPY</span>
+    <div class="dash-swipe-hint" data-swipe-hint aria-hidden="true" hidden>
+      <div class="dash-swipe-track">
+        <svg class="dash-swipe-chevron dash-swipe-chevron-left" viewBox="0 0 16 12" width="20" height="15"><path d="M7 1L2 6l5 5M14 1L9 6l5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="dash-swipe-trail dash-swipe-trail-left"></span>
+        <span class="dash-swipe-trail dash-swipe-trail-right"></span>
+        <svg class="dash-swipe-hand" viewBox="0 0 13 17" width="26" height="34" shape-rendering="crispEdges">
+          <path fill="#002855" d="M3 0h5v10H3zM6 5h7v6H6zM0 7h5v5H0zM1 8h12v7H1zM2 15h10v2H2z"/>
+          <path fill="#FFF" d="M4 1h3v9H4zM7 6h5v4H7zM1 8h3v3H1zM2 9h10v5H2zM3 14h8v2H3z"/>
+          <path fill="#002855" d="M9 6h1v3H9z"/>
+        </svg>
+        <svg class="dash-swipe-chevron dash-swipe-chevron-right" viewBox="0 0 16 12" width="20" height="15"><path d="M2 1l5 5-5 5M9 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <span class="dash-swipe-label">SWIPE TO STEER</span>
+    </div>
     <div class="dash-overlay" data-overlay>
       <div class="dash-overlay-card" data-main-card>
         <span class="dash-eyebrow" data-eyebrow hidden></span>
@@ -38,11 +60,16 @@
         </div>
         <p class="dash-howto" data-howto>
           <span class="dash-howto-keys">← → steer · ↑ boost</span>
-          <span class="dash-howto-touch">Tap sides or swipe to steer · hold BOOST</span>
+          <span class="dash-howto-touch">Swipe to steer · hold BOOST</span>
         </p>
       </div>
       <div class="dash-overlay-card dash-board-card" data-board-card hidden>
         <h2>Leaderboard</h2>
+        <div class="dash-board-tabs" role="tablist" aria-label="Leaderboard version">
+          <button type="button" role="tab" data-board-tab="v02" aria-selected="true">v0.2 · Score</button>
+          <button type="button" role="tab" data-board-tab="v01" aria-selected="false">v0.1 · Hall of Fame</button>
+        </div>
+        <input class="dash-board-search" type="search" data-board-search maxlength="16" placeholder="Search names" autocomplete="off" spellcheck="false" aria-label="Search leaderboard names" />
         <p class="dash-board-note" data-board-result role="status" hidden></p>
         <ol class="dash-board" data-board-list></ol>
         <p class="dash-board-empty" data-board-empty></p>
@@ -51,12 +78,10 @@
     </div>
   </div>
   <footer class="dash-controls">
-    <button class="dash-steer" type="button" data-action="left" aria-label="Move one lane left" disabled>←</button>
     <button class="dash-boost" type="button" data-action="boost" aria-label="Boost. Hold to go faster" disabled>
       <span class="dash-boost-fill" data-boost-fill></span>
       <span class="dash-boost-label" data-boost-label>BOOST</span>
     </button>
-    <button class="dash-steer" type="button" data-action="right" aria-label="Move one lane right" disabled>→</button>
   </footer>
   <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>
 </section>
