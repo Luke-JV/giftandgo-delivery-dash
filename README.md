@@ -80,8 +80,7 @@ never spent; gift points are a separate wallet for shops.
 - **Distance** trickles in at about 1 point per second at the start, rising gently with pace, also × the multiplier.
   Boosting does not speed it up.
 - **Multiplier chain.** Every gift collected in the guaranteed lane extends the chain; the multiplier steps up at
-  5, 10, 20, 30, 40, 50 and 60 consecutive gifts (×2 to ×8). Letting a guaranteed-lane gift go by (including to take a
-  coupon) or breaking a shield resets it to ×1. Shop and delivery rows do not break it. The multiplier glows hotter
+  5, 10, 20, 30, 40, 50 and 60 consecutive gifts (×2 to ×8). Letting a guaranteed-lane gift go by or breaking a shield resets it to ×1. Coupon, shop and delivery rows do not break it. The multiplier glows hotter
   with each tier, pops with a **×N STREAK!** call when it steps up, and flashes red with **×N LOST** when the streak breaks.
 - **Deliveries.** Every 25–40 seconds (first around 30–35 seconds in, never on the river crossing or while a shop or coupon
   is due) a banner announces a delivery to the left or right lane. About 2.5 seconds later a green drop-off bay
@@ -92,17 +91,54 @@ never spent; gift points are a separate wallet for shops.
   `delivery-dash.engine.ts` (`DELIVERY_*`, `MULTIPLIER_TIERS`).
 - **Snappy powerpup.** Very rarely (first 35–65 seconds in, then every 50–90 seconds) the blue Snappy mascot
   stands in a lane beside the guaranteed gift lane, glowing and circled by message icons. Drive into it for
-  250 × the multiplier (shown above it on the road), and **SNAPPY** pops up on screen with the points it paid. Like a coupon, taking it means passing up that row's
-  route gift, so it resets the chain. It never appears with a shop, delivery or roadworks. `POWERPUP_BONUS`
+  250 × the multiplier (shown above it on the road), and **SNAPPY** pops up on screen with the points it paid. Like a coupon, its row's gift doesn't count as a route gift,
+  so taking Snappy never breaks the chain. It never appears with a shop, delivery or roadworks. `POWERPUP_BONUS`
   sets the value.
-- **Giftasaurus.** Every 40–65 seconds at first, tightening to 26–44 by 10 minutes (first 45–65 seconds in, never with a shop, delivery, roadworks or the gift shower)
+- **Giftasaurus.** Every 26–42 seconds at first, tightening to 16–28 by 10 minutes (first 30–45 seconds in, never with a shop, delivery, roadworks or the gift shower)
   a blue-striped bobblehead T-rex stands on one verge. With its feet planted it tilts in and swings its big head over
   the outer lane on that side, clamps its jaws, pulls back and rests, about 4 seconds a cycle (`BITE_CYCLE`). The jaws
-  only bite while they are down on a truck in that lane (about 0.85–2.25s of each cycle); they never reach the middle
+  only bite while they are down on a truck in that lane (about 0.6–2.5s of each cycle); they never reach the middle
   lane, so the other two lanes are always a way through. That row's guaranteed gift sits under the jaws: grab it
   between bites to keep the chain, or skip it and lose the chain. Each bite is timed so the gift can be reached either
   at the normal pace or, when your tank has enough nitro, only by boosting. Shields, Ghost Truck and Holiday Gift
   Shoppe work on it like any other hazard. Art is in `assets/giftasaurus-*.png`.
+- **Wrecking-ball crane.** Every 32–52 seconds at first, tightening to 20–34 by 10 minutes (first 40–60 seconds in, never with a
+  shop, delivery, roadworks, coupon, Snappy, the gift shower or on the river crossing) an orange crawler crane stands on one
+  verge with its boom reaching over the middle of the road. A wrecking ball hangs from the tip on a chain and rocks across all
+  three lanes, from the centre of one edge lane to the centre of the other, once every 3.2 seconds (`CRANE_PERIOD`,
+  `CRANE_REACH`), with a shadow on the road showing where it is. The ball hits a truck within about half a lane of it, so the
+  truck can be hit anywhere on the road, but there is always at least one lane clear. The swing is timed so the ball is well
+  clear of the route lane as the truck passes at the normal pace (`timeSwing`); the other two lanes are fair game, and boosting
+  changes when the truck arrives, so a boost can put it under the ball. A crane never shares a row with a hazard, a delivery
+  waits for it to pass, and shields, Ghost Truck and Holiday Gift Shoppe (which removes it) work on it as on any other hazard.
+  Art is in `assets/crane.png` and `assets/wrecking-ball.png`.
+
+## Tunnels and the river crossing
+
+The road has two set pieces with their own hazards, instead of cones, barriers, drums and potholes. Both keep the
+rule that the guaranteed route gift marks an open lane.
+
+**Tunnels** first appear about 3 minutes in (170–200 seconds) and come every 45–90 seconds after that, 10 seconds long
+at first and up to 18 by 10 minutes. A concrete portal in a hill leads into a dark tunnel with ceiling lamps and a bright
+exit. Inside, hazards fade out beyond about 1.5 seconds of travel, while gifts, bays and coupons glow and stay visible to
+about 2.6 seconds, so you can still read the route.
+- **Stalled cars** join the usual obstacles rather than replacing them: about 3 in 10 side-lane obstacles are stalled cars, the rest are the normal cones, barriers, drums and potholes. They are dark, but their hazard lights flash amber and show through
+  the dark before the car itself does.
+- **Maintenance vehicle.** Once per tunnel, a work truck with a beacon and a chevron panel closes one or two lanes for
+  3.5–5 seconds, like a short roadworks closure (no flip).
+- **Lane-control gantry.** About 3 seconds before that closure an overhead gantry shows a red X over each lane that will
+  be shut and a green arrow over the rest, and stays bright in the dark.
+
+**The river crossing** (12 seconds, 24 seconds into every 80 second cycle) adds **birds** (a flock of gulls standing on
+the road) and large **puddles** to the usual obstacles, about 3 in 10 of them (`ZONE_HAZARD_CHANCE`). Hitting either is a crash, like any other hazard: a shield
+or Ghost Truck takes it. From 2.5 minutes in, one crosswind per crossing. About 3 seconds ahead a windsock on the rail starts to stream, streaks
+blow across the road and a "Crosswind" chip appears. Then a bar fills outward from the middle toward the side the wind
+will push you, over 1.3 seconds (`GUST_BUILD_SECONDS`), and the truck leans gradually toward that lane. Only when the bar is
+full does your lane actually change, one lane toward the wind; the drawn truck carries on smoothly from its lean while
+the hitbox jumps. Against the rail nothing moves, and you can steer yourself into the wind's lane early. Rows around the
+gust are left clear of obstacles.
+Both zones are placed by distance along the run (`bridgeSpan`, `planTunnel` in `delivery-dash.engine.ts`), a tunnel
+never overlaps a crossing, and shops and delivery bays are never put on the bridge.
 
 ## Gift points, coupons and shops
 
@@ -185,7 +221,7 @@ same button exits.
 
 ## Difficulty and fairness
 
-Speed increases continuously with active playing time: `86 + 240 × (1 − e^(−t/60)) + 0.6 × t` (`SPEED_START`, `SPEED_RISE`, `SPEED_CREEP`)
+Speed increases continuously with active playing time: `107.5 + 300 × (1 − e^(−t/60)) + 0.75 × t` (`SPEED_START`, `SPEED_RISE`, `SPEED_CREEP`)
 in game-world units, with no upper speed cap. The pace display starts at 1.0×,
 reaches approximately 3.2× after one minute, 5.9× after five and 8× after ten, and continues rising slowly. The camera
 widens its view gradually as speed rises so approaching obstacles remain readable.
@@ -217,13 +253,15 @@ Distance and pace are arcade measures, not a realistic driving simulation.
 
 ## Rendering and lifecycle
 
-The game uses a 240×230 canvas displayed up to 480×460px. The truck sprite is
+The game uses a 240-wide canvas displayed up to 480px, 230 tall when embedded. In
+fullscreen the canvas grows taller (up to 560) to match the screen's aspect ratio, so
+a portrait phone is filled edge to edge; very wide screens are pillarboxed. The truck sprite is
 48×73 logical pixels and uses nearest-neighbour rendering. The original logo
 is drawn as a separate high-resolution image so its lettering stays sharp.
 
 All assets are embedded in `delivery-dash.assets.ts`; no HTTP client, CDN,
 external fonts, animation library, or extra npm package is needed in your app.
-`assets/` includes the truck, logo and original scenery as separate PNG files for reuse; copying
+`assets/` includes the truck, logo, original scenery and the tunnel and bridge sprites (generated with Codex, keyed from a flat background and downsampled to game scale) as separate PNG files for reuse; copying
 that directory is optional. If your site uses CSP, `img-src` must permit `data:`.
 
 The renderer starts in `afterNextRender` and runs outside Angular change detection.

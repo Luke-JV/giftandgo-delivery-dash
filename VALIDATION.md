@@ -28,11 +28,18 @@ a loss never took score below zero. In the browser the side panel stayed over th
 verge on either side of the road, the truck kept driving during the spin, and the
 jackpot, loss and reduced-motion paths drew without console errors.
 
+Wrecking-ball crane checks: 30 seeded 900-second runs with Ghost Truck held on (so nothing ends the run) saw about 20 cranes
+a run, the first 52–67 seconds in and 21–102 seconds apart (43 on average). The route-lane gift's lane was clear of the ball
+on all 347 crossings measured at the normal pace. Over 40 route-following autopilot runs no run crashed on a crane (they
+still died to ordinary hazards late on, as above), while an autopilot that steered into the ball's lane crashed in all 40.
+A shield absorbed a ball hit and the run carried on. In the browser the left- and right-hand cranes, the swinging chain,
+the ball and its road shadow drew correctly as the crane approached, and the ball came down on the truck when it was in its lane.
+
 Your actual Angular application’s build, CSP, global CSS and loading flow still
 need integration checks. The prototype does not call a loyalty or coupon-store
 API. Gift points and coupons are per-run game rewards.
 
-Difficulty checks (speed 86 + 240(1 − e^(−t/60)) + 0.6t, row gaps from 1.6s down to a 0.55s floor at 10 minutes, route
+Difficulty checks (speed 107.5 + 300(1 − e^(−t/60)) + 0.75t, row gaps from 1.6s down to a 0.55s floor at 10 minutes, route
 jumps, more frequent roadworks and Giftasaurus, one shield at a time). Seeded autopiloted 900-second runs, 40 per
 setting, that follow the guaranteed route and wait for each row to clear plus a fixed delay before changing lane
 (Giftasaurus bites ignored, since the bot boosts more crudely than a player). The delay is the wait between a row
@@ -43,3 +50,15 @@ clearing and the lane change, not a reaction to a surprise, since rows are visib
 - 0.15s delay: no crash in the first 5 minutes; 9 of 40 reached 15 minutes.
 Roadworks never crashed the bot at these delays. The score and distance ceilings in
 `supabase/leaderboard-v0.2.sql` follow the new speed curve and row-gap floor and must be re-run before deploy.
+
+Tunnel and bridge checks: 30 seeded autopiloted 900-second runs at a 0.25s lane-change delay averaged 5.3 tunnels,
+1.3 maintenance closures with their gantries, 6.4 crosswinds, 44 bird flocks and 48 puddles per run (before the zone hazards were reduced to about 3 in 10 obstacles, which leaves about 26 stalled cars, 13 flocks and 11 puddles per run). No run crashed
+in the first 5 minutes; crashes in the tunnel were stalled cars at the same rate as ordinary rows, one in 30 runs
+crashed on a puddle and none on birds or a gust (rows around each gust are left clear). A tunnel never overlapped a
+river crossing. In headless Chrome the portal, tunnel interior, exit fade, gantry, maintenance vehicles, hazard lamps,
+gulls, puddles, windsock and gust streaks drew without console errors, and a real-time drive through a tunnel
+entrance changed zone at the portal. The sprites were generated with Codex, keyed from a flat background and downsampled.
+
+Crosswind check: in the engine the hitbox lane changed once, at the 1.3 second peak, while the drawn truck moved at most
+0.013 of a lane a frame (it leans a full lane as the bar fills, and the lean is taken off as the lane is added), from the
+middle lane in either direction and from an edge lane toward the middle. Against a rail neither moved.

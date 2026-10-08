@@ -187,11 +187,18 @@
 .delivery-dash[data-state="shop"] .dash-scene { min-height: 480px; }
 
 .delivery-dash.dash-fullscreen { position: fixed; inset: 0; z-index: 2147483000; width: 100vw; height: 100vh; height: 100dvh; max-width: none; border-radius: 0; display: flex; flex-direction: column; justify-content: space-between; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.dash-fullscreen .dash-scene { width: min(100%, calc((100dvh - 140px) * 240 / 230)); min-width: 240px; min-height: 0 !important; margin-inline: auto; align-self: center; }
+.dash-fullscreen .dash-scene { flex: 1 1 0; width: 100%; min-height: 0 !important; margin-inline: auto; align-self: center; }
 .dash-fullscreen .dash-header, .dash-fullscreen .dash-controls { width: min(100%, 640px); margin-inline: auto; }
 .dash-fullscreen[data-state="running"], .dash-fullscreen[data-state="running"] canvas { touch-action: none; overscroll-behavior: none; }
+@media (max-height: 700px) {
+  .dash-fullscreen .dash-overlay { padding: 8px; }
+  .dash-fullscreen .dash-overlay-card { padding: 12px; }
+  .dash-fullscreen:is([data-state="reward"], [data-state="shop"]) .dash-overlay h2 { font-size: 26px; letter-spacing: 4px; margin: 2px 0; }
+  .dash-fullscreen .dash-overlay p { margin-bottom: 8px; }
+  .dash-fullscreen .dash-rewards { gap: 6px; margin: 8px 0; }
+  .dash-fullscreen .dash-rewards button { min-height: 46px; padding-block: 6px; }
+}
 @media (orientation: landscape) and (max-height: 520px) {
-  .dash-fullscreen .dash-scene { width: min(100%, calc((100dvh - 96px) * 240 / 230)); }
   .dash-fullscreen .dash-header { padding: 4px 14px; }
   .dash-fullscreen .dash-controls { padding: 4px 12px 6px; }
   .dash-fullscreen .dash-boost { min-height: 40px; }

@@ -42,10 +42,10 @@ export const SHIELD_LIMIT = 1;
  * first minute, then creeps up for the rest of the run with no ceiling. Rows are spaced in seconds, so speed
  * sets how the game looks and scores; how hard it is to react comes from ROW_GAPS and DIFFICULTY_FROM below.
  */
-export const SPEED_START = 86;
-export const SPEED_RISE = 240;
+export const SPEED_START = 107.5;
+export const SPEED_RISE = 300;
 export const SPEED_RISE_SECONDS = 60;
-export const SPEED_CREEP = 0.6;
+export const SPEED_CREEP = 0.75;
 export const speedAt = (seconds: number): number => SPEED_START + SPEED_RISE * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS)) + SPEED_CREEP * seconds;
 /** Distance covered in `seconds` of driving: the integral of `speedAt`. */
 export const distanceAt = (seconds: number): number => SPEED_START * seconds + SPEED_RISE * (seconds - SPEED_RISE_SECONDS * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS))) + SPEED_CREEP / 2 * seconds * seconds;
@@ -68,9 +68,45 @@ const DIFFICULTY_FULL = 600;
 /** 0 until DIFFICULTY_FROM, then rising to 1 at DIFFICULTY_FULL; scales how often the harder patterns and traps appear. */
 export const difficultyAt = (seconds: number): number => Math.max(0, Math.min(1, (seconds - DIFFICULTY_FROM) / (DIFFICULTY_FULL - DIFFICULTY_FROM)));
 const blend = (easy: number, hard: number, seconds: number): number => easy + (hard - easy) * difficultyAt(seconds);
-export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'coupon' | 'shop' | 'delivery' | 'roadworks' | 'powerpup' | 'giftasaurus';
-/** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `variant` makes it a coloured gift with a different reward. `length` is how far a roadworks closure runs beyond `z`. `biteAt` is when a Giftasaurus bite cycle starts. */
-export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; variant?: GiftVariant; length?: number; biteAt?: number; }
+/** `stalledcar` is the tunnel's obstacle, `birds` and `puddle` the bridge's. A `gantry` is an overhead lane-control signal that never collides. */
+export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'coupon' | 'shop' | 'delivery' | 'roadworks' | 'powerpup' | 'giftasaurus' | 'crane' | 'stalledcar' | 'gantry' | 'birds' | 'puddle' | 'ferrari';
+/** An oncoming car's lane changes, as distances ahead of the truck: `lanes` is the lane it is in before each change and the one it ends in, `starts` is the depth at which each change begins moving, `moveLength` how deep it takes and `signalLength` how far ahead its indicator warns. */
+export interface FerrariWeave { lanes: number[]; starts: number[]; moveLength: number; signalLength: number; }
+/** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `variant` makes it a coloured gift with a different reward. `length` is how far a roadworks closure runs beyond `z`. `maintenance` makes that closure a maintenance vehicle's. `closed` is the lanes a gantry shows a red X over. `biteAt` is when a Giftasaurus bite cycle starts. `swingAt` is when a crane's wrecking ball is at the middle of its swing, heading right. */
+export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; variant?: GiftVariant; length?: number; maintenance?: boolean; closed?: number[]; biteAt?: number; swingAt?: number; weave?: FerrariWeave; }
+/** A stretch of road, as distances from the start of the run. */
+export interface ZoneSpan { start: number; end: number; }
+/** The river crossing is 12 seconds long, 24 seconds into every 80 second cycle of a run driven at the plain pace. */
+const BRIDGE_CYCLE_SECONDS = 80;
+const BRIDGE_FROM_SECONDS = 24;
+const BRIDGE_TO_SECONDS = 36;
+export const bridgeSpan = (cycle: number): ZoneSpan => ({ start: distanceAt(cycle * BRIDGE_CYCLE_SECONDS + BRIDGE_FROM_SECONDS), end: distanceAt(cycle * BRIDGE_CYCLE_SECONDS + BRIDGE_TO_SECONDS) });
+/** The first river crossing that ends no more than `behind` short of `distance`. */
+export const nextBridge = (distance: number, behind = 0): ZoneSpan => {
+  for (let cycle = 0; ; cycle++) {
+    const span = bridgeSpan(cycle);
+    if (span.end > distance - behind) return span;
+  }
+};
+export const inBridge = (distance: number): boolean => {
+  const span = nextBridge(distance);
+  return distance >= span.start;
+};
+/** A tunnel appears this many seconds before the truck reaches it, is 10 to 18 seconds long, and a lane gantry warns of a closure this many seconds ahead. */
+const TUNNEL_LEAD_SECONDS = 12;
+const TUNNEL_FIRST_SECONDS = 170;
+const GANTRY_SECONDS = 3;
+/** In a tunnel or on the river crossing, this share of obstacles are the zone's own; the rest are the usual ones. */
+const ZONE_HAZARD_CHANCE = 0.3;
+const MAINTENANCE_MIN_SECONDS = 3.5;
+const MAINTENANCE_MAX_SECONDS = 5;
+/** A crosswind builds for this long, leaning the truck toward its lane, then shoves it into the lane at the peak. The lean eases at this many lanes a second. */
+export const GUST_BUILD_SECONDS = 1.3;
+const GUST_EASE_LANES_PER_SECOND = 3;
+const GUST_FROM_SECONDS = 150;
+export type Zone = 'road' | 'bridge' | 'tunnel';
+/** A crosswind on the bridge: `at` is where along the run it starts to build, `direction` which way it pushes (-1 left, 1 right). `offset` is how far the truck is drawn from its lane, in lanes, and `swappedAt` is when the lane changed. */
+export interface GustEvent { at: number; direction: number; startedAt: number | null; swappedAt: number | null; offset: number; clearFrom: number; clearTo: number; }
 export interface RunResult { score: number; distance: number; gifts: number; giftPoints: number; coupons: number; spent: number; duration: number; maxMultiplier: number; deliveries: number; deliveriesMissed: number; }
 /** `pending` holds the lane unannounced until its obstacles pass, `incoming` warns the player, `active` has a bay on the road against the clock, `expired` is a missed clock with the bay still ahead. */
 export interface DeliveryRequest { lane: number; phase: 'pending' | 'incoming' | 'active' | 'expired'; spawnAt: number; deadline: number; window: number; }
@@ -87,14 +123,42 @@ export const POWERPUP_BONUS = 250;
 /** The Dustbuster runs out after this long and reaches gifts up to this many lanes from the truck (the middle lane covers all three, an edge lane only the middle). */
 export const MAGNET_SECONDS = 60;
 const MAGNET_REACH_LANES = 1;
+/** A crane's wrecking ball swings once across all three lanes and back every CRANE_PERIOD seconds, out to the centre of each edge lane. */
+export const CRANE_PERIOD = 3.2;
+export const CRANE_REACH = 1;
+/** The ball hits a truck whose centre is within this many lanes of it: the truck's half width plus the ball's radius. */
+const CRANE_HIT = 0.54;
+/** Lanes of extra room, beyond the hit width, the swing is timed to leave around the route lane when the truck arrives. */
+const CRANE_MARGIN = 0.18;
 /** Giftasaurus bite cycle in seconds: lean in, clamp, pull back, rest. */
-export const BITE_CYCLE: readonly number[] = [1.3, 0.6, 1.0, 1.1];
+export const BITE_CYCLE: readonly number[] = [1.0, 1.2, 0.9, 0.8];
 export type BiteStage = 'lean' | 'clamp' | 'pullBack' | 'rest';
 /** How far the jaws reach past the road edge at full stretch, in lanes: over a truck in the outer lane, short of the middle one. */
 export const BITE_REACH = 0.6;
 /** Half the truck's width, in lanes, and how far past its near side the jaws must reach to bite (the head is then down on the roof). */
 const TRUCK_HALF_WIDTH = 0.32;
 const BITE_OVERLAP = 0.2;
+/**
+ * A rare silver Ferrari comes down the road toward the truck, FERRARI_PACE times the road's own speed again, changing lane
+ * three times on the way. It always ends in a lane other than the route lane (where the route gift sits), and the last
+ * change is finished FERRARI_SWAPS[2] - FERRARI_SWAP_SECONDS seconds before it arrives at the normal pace, so it never leaves
+ * the truck without a clear lane to reach. Each change is signalled FERRARI_SIGNAL_SECONDS ahead by its indicator.
+ */
+export const FERRARI_PACE = 0.8;
+export const FERRARI_FLIGHT_SECONDS = 3.4;
+/** Seconds before reaching the truck, at the normal pace, at which each lane change starts to move. */
+export const FERRARI_SWAPS: readonly number[] = [2.7, 1.95, 1.3];
+export const FERRARI_SWAP_SECONDS = 0.3;
+export const FERRARI_SIGNAL_SECONDS = 0.35;
+/** The truck's half width plus the car's, in lanes. */
+const FERRARI_HIT = TRUCK_HALF_WIDTH + 0.3;
+/** The first Ferrari is 60 to 90 seconds in; after that one comes every 55 to 100 seconds. A plan waits for the road to clear, and is dropped after FERRARI_PLAN_TIMEOUT. */
+const FERRARI_FIRST_SECONDS = 60;
+const FERRARI_GAP_SECONDS = 55;
+const FERRARI_GAP_SPREAD = 45;
+const FERRARI_RETRY_SECONDS = 12;
+const FERRARI_PLAN_SECONDS = 3;
+const FERRARI_PLAN_TIMEOUT = 14;
 /** Seconds of warning before the bay appears, and how far inside the unboosted arrival time the clock runs out. */
 export const DELIVERY_WARNING = 2.5;
 export const DELIVERY_MARGIN = 0.6;
@@ -111,7 +175,7 @@ export const SHOP_ITEMS: readonly { item: ShopItem; costs: readonly number[] }[]
 ];
 export const isShopItem = (reward: string): reward is ShopItem => SHOP_ITEMS.some(entry => entry.item === reward);
 export const isCouponReward = (reward: string): reward is CouponReward => COUPON_REWARDS.some(entry => entry === reward);
-const isHazard = (kind: EntityKind): boolean => kind === 'cone' || kind === 'barrier' || kind === 'drum' || kind === 'pothole' || kind === 'giftasaurus';
+const isHazard = (kind: EntityKind): boolean => kind === 'cone' || kind === 'barrier' || kind === 'drum' || kind === 'pothole' || kind === 'giftasaurus' || kind === 'stalledcar' || kind === 'birds' || kind === 'puddle';
 
 /** Simulation only. Rendering and browser events live in delivery-dash.game.ts. */
 export class DeliveryDashEngine {
@@ -134,6 +198,14 @@ export class DeliveryDashEngine {
   lastPowerpupAt = -100;
   private nextPowerpupAt = 35;
   private nextGiftasaurusAt = 45;
+  private nextCraneAt = 50;
+  private nextFerrariAt = FERRARI_FIRST_SECONDS;
+  private ferrariPlan: { since: number } | null = null;
+  private ferrariRoute = 1;
+  tunnel: (ZoneSpan & { maintenance: boolean }) | null = null;
+  private nextTunnelAt = TUNNEL_FIRST_SECONDS;
+  gust: GustEvent | null = null;
+  private gustPlannedFor = -1;
   distance = 0;
   gifts = 0;
   giftPoints = 0;
@@ -172,7 +244,7 @@ export class DeliveryDashEngine {
   private safeLane = 1;
 
   constructor(private readonly random: () => number = Math.random) {}
-  // Continuous time-based acceleration: 86 at the start, about 300 after one minute, 500 after five, 690 after ten.
+  // Continuous time-based acceleration: 107.5 at the start, about 340 after one minute, 630 after five, 860 after ten.
   // No speed ceiling; pause time does not count toward difficulty.
   get speed(): number { return speedAt(this.elapsed); }
   boostHeld = false;
@@ -205,7 +277,10 @@ export class DeliveryDashEngine {
     this.score = this.chain = this.deliveries = this.deliveriesMissed = this.lastGain = 0;
     this.maxMultiplier = 1; this.lastChainBreak = null; this.lastBonusGift = null; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
     this.lastPowerpupAt = -100; this.nextPowerpupAt = 35 + this.random() * 30;
-    this.nextGiftasaurusAt = 45 + this.random() * 20;
+    this.nextGiftasaurusAt = 30 + this.random() * 15;
+    this.nextCraneAt = 40 + this.random() * 20;
+    this.nextFerrariAt = FERRARI_FIRST_SECONDS + this.random() * 30; this.ferrariPlan = null;
+    this.tunnel = null; this.nextTunnelAt = TUNNEL_FIRST_SECONDS + this.random() * 30; this.gust = null; this.gustPlannedFor = -1;
     this.slotSpin = null; this.lastSlotResult = null; this.nextSlotAt = 25 + this.random() * 20;
     this.spawnIn = 1.6;
     this.giftPoints = this.pointsEarned = this.spent = this.coupons = this.shields = this.nitroLevel = this.loyaltyLevel = 0;
@@ -371,6 +446,7 @@ export class DeliveryDashEngine {
     if (reward === 'rain') {
       // Every hazard still ahead becomes a gift, and new rows are all gifts for a few seconds.
       for (const e of this.entities) if (e.z >= 48 && isHazard(e.kind)) e.kind = 'gift';
+      this.entities = this.entities.filter(e => (e.kind !== 'crane' && e.kind !== 'ferrari') || e.z < 48);
       // Closures still ahead are cleared into a trail of gifts along the lane.
       const works = this.entities.filter(e => e.kind === 'roadworks' && e.z >= 48);
       this.entities = this.entities.filter(e => !works.includes(e));
@@ -400,18 +476,24 @@ export class DeliveryDashEngine {
     this.lanePosition += Math.sign(delta) * Math.min(Math.abs(delta), dt / 0.16);
     for (const e of this.entities) {
       const previousZ = e.z, length = e.length ?? 0;
-      e.z -= travel;
-      if (e.handled || e.z > 68 || previousZ + length < 48) continue;
+      // An oncoming car closes on the truck by its own speed as well as the road's.
+      const moved = e.kind === 'ferrari' ? travel + this.speed * FERRARI_PACE * dt : travel;
+      e.z -= moved;
+      if (e.handled || e.kind === 'gantry' || e.z > 68 || previousZ + length < 48) continue;
       // Swept overlap catches an obstacle even when one fast frame crosses the
       // entire collision zone, and uses the truck's actual lane-change path.
       // A roadworks closure overlaps for its whole length, so steering into it crashes.
-      const enter = Math.max(0, (previousZ - 68) / travel);
-      const leave = Math.min(1, (previousZ + length - 48) / travel);
+      const enter = Math.max(0, (previousZ - 68) / moved);
+      const leave = Math.min(1, (previousZ + length - 48) / moved);
       const laneAt = (fraction: number) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
       const a = laneAt(enter), b = laneAt(leave);
       // The Dustbuster reaches gifts one lane either side of the truck.
       const reach = e.kind === 'gift' && this.magnet ? MAGNET_REACH_LANES + 0.43 : 0.43;
-      if (e.kind === 'giftasaurus' ? !this.bites(e, a) && !this.bites(e, b) : Math.max(a, b) <= e.lane - reach || Math.min(a, b) >= e.lane + reach) continue;
+      const misses = e.kind === 'giftasaurus' ? !this.bites(e, a) && !this.bites(e, b)
+        : e.kind === 'crane' ? !this.craneHits(e, a) && !this.craneHits(e, b)
+        : e.kind === 'ferrari' ? !this.ferrariHits(e, previousZ, moved, enter, leave, laneAt)
+        : Math.max(a, b) <= e.lane - reach || Math.min(a, b) >= e.lane + reach;
+      if (misses) continue;
       e.handled = true;
       if (e.kind === 'shop') {
         this.shopsVisited++;
@@ -434,7 +516,7 @@ export class DeliveryDashEngine {
       else if (e.kind === 'powerpup') { this.addScore(POWERPUP_BONUS * this.multiplier); this.lastPowerpupAt = this.elapsed; }
       else if (this.invulnerableUntil > this.elapsed || this.ghostUntil > this.elapsed) continue;
       else if (this.shields > 0) { this.shields--; this.invulnerableUntil = this.elapsed + 0.55; this.breakChain(); }
-      else { this.state = 'crashed'; this.crashLane = e.lane; break; }
+      else { this.state = 'crashed'; this.crashLane = e.kind === 'ferrari' ? Math.round(this.ferrariLane(e)) : e.lane; break; }
     }
     for (const e of this.entities) {
       if (e.z >= 48 || e.handled) continue;
@@ -444,9 +526,12 @@ export class DeliveryDashEngine {
     this.entities = this.entities.filter(e => e.z + (e.length ?? 0) > -90 && !((e.kind === 'gift' || e.kind === 'coupon' || e.kind === 'shop' || e.kind === 'delivery' || e.kind === 'powerpup') && e.handled));
     if (this.state !== 'running') return;
     this.settleSlot();
+    this.updateTunnel();
+    this.updateGust(dt);
     // Score trickles in with pace (not boost), so distance matters but never dominates.
     this.score += this.speed / SPEED_START * dt * this.multiplier;
     this.updateDelivery();
+    this.updateFerrari();
     this.spawnIn -= dt;
     if (this.spawnIn <= 0) {
       // Spawn 4.8 seconds ahead, accounting for future acceleration. Density
@@ -478,6 +563,16 @@ export class DeliveryDashEngine {
     return this.biteExtension(e, at) * BITE_REACH > gap;
   }
 
+  /** Where the crane's wrecking ball hangs, in lanes (1 is the middle lane), `at` this time. */
+  craneBall(e: RoadEntity, at = this.elapsed): number {
+    return 1 + CRANE_REACH * Math.sin((at - (e.swingAt ?? 0)) * 2 * Math.PI / CRANE_PERIOD);
+  }
+
+  /** Whether the ball is over a truck at this lane position, widened by `margin` lanes. `e.lane` is the verge the crane stands on and plays no part. */
+  craneHits(e: RoadEntity, lanePosition: number, at = this.elapsed, margin = 0): boolean {
+    return Math.abs(this.craneBall(e, at) - lanePosition) < CRANE_HIT + margin;
+  }
+
   /** Seconds until a row `z` ahead reaches the truck, boosting for up to `boostSeconds` first. */
   private arrivalIn(z: number, boostSeconds: number): number {
     let time = 0, travelled = 0;
@@ -506,6 +601,93 @@ export class DeliveryDashEngine {
     e.biteAt = fits.length ? fits[Math.floor(this.random() * fits.length)] : steady + period - BITE_CYCLE[0] / 2;
   }
 
+  /**
+   * Time the swing so the ball is well clear of the route lane for the whole of the truck's pass at the normal pace.
+   * Every other lane is fair game, so leaving the route to dodge or chase something else means reading the swing.
+   */
+  private timeSwing(e: RoadEntity, routeLane: number): void {
+    const arrival = this.elapsed + this.arrivalIn(e.z, 0);
+    const clear = (swingAt: number) => [-0.3, -0.15, 0, 0.15, 0.3].every(offset => {
+      e.swingAt = swingAt;
+      return !this.craneHits(e, routeLane, arrival + offset, CRANE_MARGIN);
+    });
+    const starts = [...Array(Math.round(CRANE_PERIOD / 0.05)).keys()].map(step => this.elapsed + step * 0.05);
+    const fits = starts.filter(clear);
+    e.swingAt = fits.length ? fits[Math.floor(this.random() * fits.length)] : arrival - CRANE_PERIOD * (routeLane === 2 ? 0.75 : 0.25);
+  }
+
+  /** Whether a Ferrari is on its way and has not yet reached the truck. */
+  get ferrariAhead(): boolean { return this.entities.some(e => e.kind === 'ferrari' && e.z > 20); }
+
+  /** Where the Ferrari is across the road, in lanes (1 is the middle lane), when it is `z` ahead of the truck. */
+  ferrariLane(e: RoadEntity, z = e.z): number {
+    const weave = e.weave;
+    if (!weave) return e.lane;
+    return weave.starts.reduce((lane, start, index) => {
+      const progress = Math.max(0, Math.min(1, (start - z) / weave.moveLength));
+      return lane + (weave.lanes[index + 1] - weave.lanes[index]) * progress * progress * (3 - 2 * progress);
+    }, weave.lanes[0]);
+  }
+
+  /** The lane the Ferrari's indicator is flashing toward, or null when it is not about to change lane. */
+  ferrariSignal(e: RoadEntity): number | null {
+    const weave = e.weave;
+    const index = weave ? weave.starts.findIndex(start => e.z > start && e.z <= start + weave.signalLength) : -1;
+    return weave && index >= 0 ? weave.lanes[index + 1] : null;
+  }
+
+  /** Whether the Ferrari overlaps the truck at any point of a frame in which it came from `previousZ` and the truck steered along `laneAt`. */
+  private ferrariHits(e: RoadEntity, previousZ: number, moved: number, enter: number, leave: number, laneAt: (fraction: number) => number): boolean {
+    const samples = 8;
+    return Array.from({ length: samples + 1 }, (_, step) => enter + (leave - enter) * step / samples)
+      .some(fraction => Math.abs(this.ferrariLane(e, previousZ - moved * fraction) - laneAt(fraction)) < FERRARI_HIT);
+  }
+
+  /** Plain road all the way out to where a Ferrari would start, with nothing else claiming it. */
+  private ferrariCanRun(): boolean {
+    const reach = this.travelAfter(FERRARI_FLIGHT_SECONDS * (1 + FERRARI_PACE) + 2);
+    return !this.delivery && !this.tunnel && !this.gust && this.rainUntil <= this.elapsed && this.row >= 6
+      && nextBridge(this.distance).start - this.distance > reach && !this.entities.some(e => e.kind === 'roadworks');
+  }
+
+  /**
+   * Plan a Ferrari when its time comes: from then rows carry only the route gift, in one fixed lane, so the road is clear
+   * of everything the car will drive through, and the route lane stays where the Ferrari is told to keep out of.
+   * Once the road ahead is empty it starts at the far end, drives in changing lanes, and finishes in a lane that is not the route lane.
+   */
+  private updateFerrari(): void {
+    const plan = this.ferrariPlan;
+    if (!plan) {
+      if (this.elapsed < this.nextFerrariAt || !this.ferrariCanRun()) return;
+      this.ferrariPlan = { since: this.elapsed };
+      this.ferrariRoute = this.safeLane;
+      return;
+    }
+    const waited = this.elapsed - plan.since;
+    if (!this.ferrariCanRun() || waited > FERRARI_PLAN_TIMEOUT) {
+      this.ferrariPlan = null;
+      this.nextFerrariAt = this.elapsed + FERRARI_RETRY_SECONDS;
+      return;
+    }
+    if (waited < FERRARI_PLAN_SECONDS || this.entities.some(e => e.kind !== 'gift')) return;
+    this.entities.push(this.makeFerrari(this.ferrariRoute));
+    this.ferrariPlan = null;
+    this.nextFerrariAt = this.elapsed + FERRARI_GAP_SECONDS + this.random() * FERRARI_GAP_SPREAD;
+    this.nextGiftasaurusAt = Math.max(this.nextGiftasaurusAt, this.elapsed + 8);
+    this.nextCraneAt = Math.max(this.nextCraneAt, this.elapsed + 8);
+  }
+
+  /** A Ferrari that ends in a lane other than `route`, changing lane between neighbouring lanes on the way. */
+  private makeFerrari(route: number): RoadEntity {
+    const closing = speedAt(this.elapsed + FERRARI_FLIGHT_SECONDS / 2) * (1 + FERRARI_PACE);
+    const lanes = [this.pick([0, 1, 2].filter(lane => lane !== route))];
+    FERRARI_SWAPS.forEach(() => lanes.unshift(this.pick([0, 1, 2].filter(lane => Math.abs(lane - lanes[0]) === 1))));
+    const weave: FerrariWeave = {
+      lanes, starts: FERRARI_SWAPS.map(seconds => 68 + closing * seconds), moveLength: closing * FERRARI_SWAP_SECONDS, signalLength: closing * FERRARI_SIGNAL_SECONDS,
+    };
+    return { id: this.nextId++, row: this.row, lane: lanes[0], z: 68 + closing * FERRARI_FLIGHT_SECONDS, kind: 'ferrari', handled: false, weave };
+  }
+
   private addScore(amount: number): void {
     this.score += amount;
     this.lastGain = Math.round(amount); this.lastGainAt = this.elapsed;
@@ -521,10 +703,73 @@ export class DeliveryDashEngine {
     this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
   }
 
-  /** Verge buildings are never placed on the river crossing (an 80s cycle; the bridge is 24-36s into it). */
-  private onBridge(at: number): boolean {
-    const bridgeTime = (at + 8 + 5) % 80;
-    return bridgeTime > 18 && bridgeTime < 42;
+  /** Whether a row `z` ahead of the truck is on the river crossing. Shops and delivery bays are never placed there. */
+  private onBridge(z: number): boolean { return inBridge(this.distance + z); }
+
+  zoneAt(z: number): Zone {
+    const at = this.distance + z;
+    return this.tunnel && at >= this.tunnel.start && at <= this.tunnel.end ? 'tunnel' : inBridge(at) ? 'bridge' : 'road';
+  }
+
+  /** Plan a tunnel once its time comes, clear of any river crossing, and drop it once the truck is out of it. */
+  private updateTunnel(): void {
+    if (this.tunnel) {
+      if (this.distance > this.tunnel.end + 120) {
+        this.tunnel = null;
+        this.nextTunnelAt = this.elapsed + blend(70, 45, this.elapsed) + this.random() * 20;
+      }
+      return;
+    }
+    if (this.elapsed < this.nextTunnelAt) return;
+    const seconds = blend(10, 18, this.elapsed), margin = this.travelAfter(3);
+    let start = this.distance + this.travelAfter(TUNNEL_LEAD_SECONDS);
+    const length = this.travelAfter(TUNNEL_LEAD_SECONDS + seconds) - this.travelAfter(TUNNEL_LEAD_SECONDS);
+    for (let cycle = 0; ; cycle++) {
+      const bridge = bridgeSpan(cycle);
+      if (bridge.start - margin > start + length) break;
+      if (bridge.end + margin > start) start = Math.max(start, bridge.end + margin);
+    }
+    this.tunnel = { start, end: start + length, maintenance: false };
+  }
+
+  /**
+   * Plan one crosswind per river crossing, once the run is past its easy start. Rows around it are left clear
+   * of obstacles, so a push to the next lane costs attention but never the run.
+   */
+  /** Where the truck is drawn, in lanes: its lane, plus however far the wind has leaned it toward the next. */
+  get visualLane(): number { return this.lanePosition + (this.gust?.offset ?? 0); }
+
+  private updateGust(dt: number): void {
+    if (!this.gust) {
+      if (this.elapsed < GUST_FROM_SECONDS) return;
+      const bridge = nextBridge(this.distance);
+      if (bridge.start === this.gustPlannedFor || bridge.start - this.distance > this.travelAfter(TUNNEL_LEAD_SECONDS) || this.entities.some(e => e.kind === 'roadworks')) return;
+      this.gustPlannedFor = bridge.start;
+      if (bridge.start <= this.distance) return;
+      const at = bridge.start + (bridge.end - bridge.start) * (0.4 + this.random() * 0.2), perSecond = this.speed * DeliveryDashEngine.BOOST_FACTOR * 1.15;
+      this.gust = { at, direction: this.random() < 0.5 ? -1 : 1, startedAt: null, swappedAt: null, offset: 0, clearFrom: at - perSecond * 0.5, clearTo: at + perSecond * (GUST_BUILD_SECONDS + 1.2) };
+      return;
+    }
+    const gust = this.gust;
+    if (gust.startedAt === null) {
+      if (this.distance < gust.at) return;
+      gust.startedAt = this.elapsed;
+    }
+    // The drawn truck leans toward the next lane as the wind builds. Only at the peak does its lane change, so the
+    // hitbox jumps while the picture carries on smoothly: the lean it had is taken off as the lane is added.
+    const charge = Math.min(1, (this.elapsed - gust.startedAt) / GUST_BUILD_SECONDS);
+    const open = this.lane + gust.direction >= 0 && this.lane + gust.direction <= 2;
+    const target = gust.swappedAt === null && open ? gust.direction * charge : 0, step = GUST_EASE_LANES_PER_SECOND * dt;
+    gust.offset += Math.max(-step, Math.min(step, target - gust.offset));
+    if (gust.swappedAt === null && charge >= 1) {
+      gust.swappedAt = this.elapsed;
+      if (open) {
+        this.lane += gust.direction;
+        this.lanePosition = Math.max(0, Math.min(2, this.lanePosition + gust.direction));
+        gust.offset -= gust.direction;
+      }
+    }
+    if (gust.swappedAt !== null && Math.abs(gust.offset) < 0.01 && this.distance > gust.clearTo) this.gust = null;
   }
 
   private scheduleDelivery(): void { this.nextDeliveryAt = this.elapsed + 25 + this.random() * 15; }
@@ -536,12 +781,12 @@ export class DeliveryDashEngine {
    */
   private updateDelivery(): void {
     if (!this.delivery) {
-      if (this.elapsed >= this.nextDeliveryAt && !this.entities.some(e => e.kind === 'roadworks') && !this.onBridge(this.elapsed + BAY_LEAD_SECONDS + DELIVERY_WARNING) && this.nextShopAt - this.elapsed > 3 && this.nextCouponAt - this.elapsed > 3) {
+      if (this.elapsed >= this.nextDeliveryAt && !this.ferrariPlan && !this.entities.some(e => e.kind === 'roadworks') && !this.onBridge(68 + this.travelAfter(BAY_LEAD_SECONDS + DELIVERY_WARNING)) && this.nextShopAt - this.elapsed > 3 && this.nextCouponAt - this.elapsed > 3) {
         this.delivery = { lane: this.random() < 0.5 ? 0 : 2, phase: 'pending', spawnAt: 0, deadline: 0, window: 0 };
       }
     } else if (this.delivery.phase === 'pending') {
       const lane = this.delivery.lane;
-      if (!this.entities.some(e => (isHazard(e.kind) || e.kind === 'roadworks') && e.lane === lane && e.z + (e.length ?? 0) > 40)) {
+      if (!this.entities.some(e => (e.kind === 'crane' || ((isHazard(e.kind) || e.kind === 'roadworks') && e.lane === lane)) && e.z + (e.length ?? 0) > 40)) {
         this.delivery = { ...this.delivery, phase: 'incoming', spawnAt: this.elapsed + DELIVERY_WARNING };
       }
     } else if (this.delivery.phase === 'active' && this.elapsed > this.delivery.deadline) {
@@ -583,15 +828,16 @@ export class DeliveryDashEngine {
    * driving. Only edge lanes are closed alone so the open lanes stay connected. A rare
    * double closure flips sides after a clear gap long enough to cross both lanes.
    */
-  private startRoadworks(z: number): void {
+  private startRoadworks(z: number, maintenance = false): number[] {
     const openEdge = this.safeLane === 1 ? (this.random() < 0.5 ? 0 : 2) : this.safeLane;
     const double = this.random() < blend(0.2, 0.65, this.elapsed);
-    const flip = double && this.random() < blend(0.2, 0.4, this.elapsed);
+    const flip = !maintenance && double && this.random() < blend(0.2, 0.4, this.elapsed);
     const close = (lanes: number[], from: number, seconds: number) => {
-      for (const lane of lanes) this.entities.push({ id: this.nextId++, row: this.row, lane, z: from, kind: 'roadworks', handled: false, length: this.speed * seconds });
+      for (const lane of lanes) this.entities.push({ id: this.nextId++, row: this.row, lane, z: from, kind: 'roadworks', handled: false, length: this.speed * seconds, maintenance });
     };
-    const firstSeconds = flip ? 2.5 + this.random() * 1.5 : 4 + this.random() * 3;
-    close(double ? [0, 1, 2].filter(l => l !== openEdge) : [2 - openEdge], z, firstSeconds);
+    const firstSeconds = maintenance ? MAINTENANCE_MIN_SECONDS + this.random() * (MAINTENANCE_MAX_SECONDS - MAINTENANCE_MIN_SECONDS) : flip ? 2.5 + this.random() * 1.5 : 4 + this.random() * 3;
+    const firstLanes = double ? [0, 1, 2].filter(l => l !== openEdge) : [2 - openEdge];
+    close(firstLanes, z, firstSeconds);
     let total = firstSeconds;
     if (flip) {
       const gapSeconds = 1.4, secondSeconds = 2.5 + this.random() * 1.5;
@@ -599,6 +845,22 @@ export class DeliveryDashEngine {
       total += gapSeconds + secondSeconds;
     }
     this.nextRoadworksAt = this.elapsed + total + blend(22, 14, this.elapsed) + this.random() * blend(18, 14, this.elapsed);
+    return firstLanes;
+  }
+
+  /**
+   * Once per tunnel, a maintenance vehicle closes one or two lanes for a few seconds. An overhead gantry a few
+   * seconds before it shows a red X over each lane that will be shut, so the closure is never a surprise.
+   */
+  private planMaintenance(z: number): void {
+    const tunnel = this.tunnel;
+    if (!tunnel || tunnel.maintenance || this.delivery || this.rainUntil > this.elapsed || this.entities.some(e => e.kind === 'roadworks')) return;
+    if (this.distance + z - tunnel.start < this.travelAfter(1.5)) return;
+    const from = 68 + this.travelAfter(BAY_LEAD_SECONDS + GANTRY_SECONDS);
+    if (this.distance + from + this.speed * MAINTENANCE_MAX_SECONDS * 1.15 > tunnel.end - this.travelAfter(0.5)) return;
+    tunnel.maintenance = true;
+    const closed = this.startRoadworks(from, true);
+    this.entities.push({ id: this.nextId++, row: this.row, lane: 1, z, kind: 'gantry', handled: false, closed });
   }
 
   private spawnRow(z: number): void {
@@ -609,7 +871,10 @@ export class DeliveryDashEngine {
       const patterns = (['single', 'split', 'slalom'] as const).filter(p => p !== this.pattern);
       this.pattern = this.pattern !== 'breather' && this.random() < lullChance ? 'breather' : patterns[Math.floor(this.random() * patterns.length)];
     }
-    if (this.pattern === 'slalom') {
+    // While a Ferrari is planned, or still has this row to drive through, rows hold the route in one lane and carry nothing else.
+    const ferrariBusy = this.ferrariPlan !== null || this.entities.some(e => e.kind === 'ferrari' && e.z > z);
+    if (ferrariBusy) this.safeLane = this.ferrariRoute;
+    else if (this.pattern === 'slalom') {
       if (this.safeLane === 2) this.slalomDirection = -1;
       if (this.safeLane === 0) this.slalomDirection = 1;
       this.safeLane += this.slalomDirection;
@@ -617,7 +882,9 @@ export class DeliveryDashEngine {
       this.safeLane = 2 - this.safeLane;
     } else this.safeLane = Math.max(0, Math.min(2, this.safeLane + Math.floor(this.random() * 3) - 1));
     const raining = this.rainUntil > this.elapsed;
-    if (!this.closedLanesAt(z, ROADWORKS_CLEARANCE).length && this.elapsed >= this.nextRoadworksAt && this.row >= 6 && !this.delivery && !raining) this.startRoadworks(z);
+    const zone = this.zoneAt(z), gustClear = this.gust !== null && this.distance + z >= this.gust.clearFrom && this.distance + z <= this.gust.clearTo;
+    if (zone === 'tunnel') this.planMaintenance(z);
+    if (!this.closedLanesAt(z, ROADWORKS_CLEARANCE).length && this.elapsed >= this.nextRoadworksAt && this.row >= 6 && !this.delivery && !raining && zone !== 'tunnel' && !this.gust && !ferrariBusy) this.startRoadworks(z);
     // A closure that starts between rows (the far half of a flip) is treated as closed a little early,
     // so the row before it never leaves its route in a lane about to shut.
     const closed = this.closedLanesAt(z, ROADWORKS_CLEARANCE, this.speed * 0.9);
@@ -631,14 +898,28 @@ export class DeliveryDashEngine {
     const others = open.filter(l => l !== this.safeLane);
     // A coupon row offers a choice: the plain gift in the guaranteed lane, or the
     // rare coupon in an adjacent lane. The third lane stays blocked.
-    // Never place a shop on the river crossing (a 80s cycle; the bridge is 24-36s into it).
-    const onBridge = this.onBridge(this.elapsed);
-    const quiet = !this.delivery && !works;
+    // Never place a shop on the river crossing.
+    const onBridge = this.onBridge(z);
+    const quiet = !this.delivery && !works && !ferrariBusy;
     const shopRow = quiet && this.elapsed >= this.nextShopAt && this.row >= 3 && !onBridge
       && this.elapsed < this.nextCouponAt;
     const couponRow = quiet && !shopRow && this.elapsed >= this.nextCouponAt && this.row >= 3;
     const powerpupRow = quiet && !shopRow && !couponRow && this.elapsed >= this.nextPowerpupAt && this.row >= 3;
-    const giftasaurusRow = quiet && !shopRow && !couponRow && !powerpupRow && this.elapsed >= this.nextGiftasaurusAt && this.row >= 6 && !raining;
+    const giftasaurusRow = quiet && !shopRow && !couponRow && !powerpupRow && this.elapsed >= this.nextGiftasaurusAt && this.row >= 6 && !raining && !gustClear;
+    const craneRow = quiet && !shopRow && !couponRow && !powerpupRow && !giftasaurusRow && this.elapsed >= this.nextCraneAt && this.row >= 6 && !raining && !onBridge;
+    if (craneRow) {
+      // The crane stands on a verge with its ball hanging over the middle of the road, swinging across all
+      // three lanes. The route lane is clear as the truck passes at the normal pace; the other two are not.
+      const crane: RoadEntity = { id: this.nextId++, row: this.row, lane: this.random() < 0.5 ? 0 : 2, z, kind: 'crane', handled: false };
+      this.timeSwing(crane, this.safeLane);
+      this.entities.push(crane);
+      this.entities.push({ id: this.nextId++, row: this.row, lane: this.safeLane, z, kind: 'gift', handled: false, route: true, variant: this.rollGiftVariant() });
+      this.nextCraneAt = this.elapsed + blend(32, 20, this.elapsed) + this.random() * blend(20, 14, this.elapsed);
+      this.nextGiftasaurusAt = Math.max(this.nextGiftasaurusAt, this.elapsed + 8);
+      this.pattern = 'single';
+      this.row++;
+      return;
+    }
     if (giftasaurusRow) {
       // The jaws only reach the outer lane on its side, and the other two lanes stay clear. The route
       // gift sits under the jaws, so keeping the chain means timing the bite, boosting if needed.
@@ -647,7 +928,8 @@ export class DeliveryDashEngine {
       this.timeBite(dino);
       this.entities.push(dino);
       this.entities.push({ id: this.nextId++, row: this.row, lane: side, z, kind: 'gift', handled: false, route: true });
-      this.nextGiftasaurusAt = this.elapsed + blend(40, 26, this.elapsed) + this.random() * blend(25, 18, this.elapsed);
+      this.nextGiftasaurusAt = this.elapsed + blend(26, 16, this.elapsed) + this.random() * blend(16, 12, this.elapsed);
+      this.nextCraneAt = Math.max(this.nextCraneAt, this.elapsed + 8);
       this.safeLane = side; this.pattern = 'single';
       this.row++;
       return;
@@ -677,10 +959,12 @@ export class DeliveryDashEngine {
     const deliveryLane = this.delivery?.lane ?? -1;
     // A delivery's lane stays clear from reservation until its bay passes.
     const hazardLanes = others.filter(l => l !== deliveryLane);
-    const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' || this.random() < blend(0.1, 0.7, this.elapsed) ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
+    const blocked = shopRow || deliveryRow || transition || gustClear || ferrariBusy || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' || this.random() < blend(0.1, 0.7, this.elapsed) ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
     const bayLane = shopRow ? shopLane : deliveryRow ? deliveryLane : -1;
     for (const lane of blocked) {
-      const kinds: EntityKind[] = this.row < 3 ? ['cone', 'barrier'] : ['cone', 'barrier', 'drum', 'pothole'];
+      const plainKinds: EntityKind[] = this.row < 3 ? ['cone', 'barrier'] : ['cone', 'barrier', 'drum', 'pothole'];
+      const zoneKinds: EntityKind[] = zone === 'tunnel' ? ['stalledcar'] : zone === 'bridge' ? ['birds', 'puddle'] : [];
+      const kinds: EntityKind[] = zoneKinds.length && this.random() < ZONE_HAZARD_CHANCE ? zoneKinds : plainKinds;
       const kind = kinds[Math.floor(this.random() * kinds.length)];
       this.entities.push({ id: this.nextId++, row: this.row, lane, z, kind: raining ? 'gift' : kind, handled: false });
     }
@@ -688,6 +972,6 @@ export class DeliveryDashEngine {
     if (deliveryRow) this.entities.push({ id: this.nextId++, row: this.row, lane: deliveryLane, z, kind: 'delivery', handled: false });
     if (couponRow || powerpupRow) this.entities.push({ id: this.nextId++, row: this.row, lane: specialLane, z, kind: couponRow ? 'coupon' : 'powerpup', handled: false });
     this.row++;
-    if (this.safeLane !== bayLane) this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow), variant: this.rollGiftVariant() });
+    if (this.safeLane !== bayLane) this.entities.push({ id: this.nextId++, row: this.row - 1, lane: this.safeLane, z, kind: 'gift', handled: false, route: !(shopRow || deliveryRow || couponRow || powerpupRow), variant: this.rollGiftVariant() });
   }
 }

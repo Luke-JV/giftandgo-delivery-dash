@@ -1,5 +1,5 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
-import { BITE_REACH, DeliveryDashEngine, distanceAt, GameState, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol } from './delivery-dash.engine';
+import { BITE_REACH, DeliveryDashEngine, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
@@ -10,6 +10,40 @@ const SLOT_ENTER_SECONDS = 0.25;
 const SLOT_RESULT_SECONDS = 1.1;
 const SLOT_EXIT_SECONDS = 0.3;
 const SLOT_REEL_CYCLE: readonly SlotSymbol[] = ['seven', 'gift', 'star', 'bell', 'coal'];
+const TAP_MAX_DISTANCE = 24;
+const SWIPE_MIN_DISTANCE = 56;
+const CAMERA_PAN = 0.5;
+const CAMERA_FOLLOW_SECONDS = 0.45;
+const TRUCK_LEAN_MAX = 0.1;
+const TRUCK_LEAN_PER_LANE_SPEED = 0.016;
+const TRUCK_LEAN_SETTLE_SECONDS = 0.08;
+const LANE_WIDTH = 260 / 3;
+/** Where the lamps sit in the embedded sprites, as [x, y, width, height] in sprite pixels. */
+const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 22, 5, 5]];
+/** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
+const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
+const FERRARI_SIGNAL_RATE = 9;
+const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
+const TUNNEL_HALF_WIDTH = 150;
+const TUNNEL_HEIGHT = 112;
+const TUNNEL_LAMP_SPACING = 150;
+const TUNNEL_VOID = '#05080F';
+/** In a tunnel, hazards fade out beyond this many seconds of travel; lit things (gifts, bays) and the gantry stay visible further. */
+const HAZARD_SIGHT_SECONDS = 1.5;
+const GLOW_SIGHT_SECONDS = 2.6;
+const GANTRY_SIGHT_SECONDS = 3.8;
+const GANTRY_HEIGHT = 92;
+const WINDSOCK_SIGHT_SECONDS = 6;
+const GUST_WARNING_SECONDS = 3;
+interface SpriteBox { image: HTMLImageElement; x: number; y: number; w: number; h: number; scale: number; baseX: number; baseY: number; }
+interface RoadObject { z: number; over: boolean; draw: () => void; hazard?: boolean; glowLateral?: number; sight?: number; emit?: () => void; }
+/** Crane sprite pixels: the cable stub the chain hangs from, drawn CRANE_UNIT world units to a pixel so it sits over the middle of the road. The ball sprite has a chain link on top and its centre at CRANE_BALL_CENTRE. */
+const CRANE_PIVOT = { x: 250, y: 35 };
+const CRANE_UNIT = 1.1;
+const CRANE_BALL_CENTRE = { x: 24.5, y: 33.5 };
+const CRANE_BALL_UNIT = 1.15;
+/** Chain length from the cable stub to the middle of the ball, in world units. */
+const CRANE_CHAIN = 110;
 
 /** Reusable canvas game host. No Angular or third-party dependency. */
 export class DeliveryDashGame {
@@ -32,6 +66,9 @@ export class DeliveryDashGame {
   private uiTime = 0;
   private idleTime = 0;
   private cameraLane = 1;
+  private tunnelView: { near: number; far: number } | null = null;
+  private entityAlpha = 1;
+  private truckHeading = 0;
   private swipeX: number | null = null;
   private swipeY = 0;
   private pointerId: number | null = null;
@@ -80,7 +117,9 @@ export class DeliveryDashGame {
   private swipesLearned = 0;
   private swipeKey = 'giftgo-delivery-dash-swipes-learned';
   private static readonly W = 240;
-  private static readonly H = 230;
+  private static readonly MIN_HEIGHT = 230;
+  private static readonly MAX_HEIGHT = 560;
+  private sceneHeight = DeliveryDashGame.MIN_HEIGHT;
 
   constructor(private readonly root: HTMLElement, private readonly win: GameWindow,
     private readonly onFinish: (result: RunResult) => void = () => {}) {
@@ -89,7 +128,7 @@ export class DeliveryDashGame {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas is unavailable');
     this.ctx = ctx;
-    this.canvas.width = DeliveryDashGame.W; this.canvas.height = DeliveryDashGame.H;
+    this.canvas.width = DeliveryDashGame.W; this.canvas.height = this.sceneHeight;
     this.abort = new win.AbortController();
     this.motion = win.matchMedia('(prefers-reduced-motion: reduce)');
     // Touchscreen laptops report (pointer: coarse) even when driven by mouse, so the last real pointer decides.
@@ -167,6 +206,7 @@ export class DeliveryDashGame {
     listen(this.motion, 'change', () => { this.lastTime = 0; this.draw(); this.schedule(); });
     this.observer = new win.ResizeObserver(() => this.resize());
     this.observer.observe(this.find('[data-scene]'));
+    this.observer.observe(root);
     this.intersection = new win.IntersectionObserver(entries => {
       this.onscreen = entries[0]?.isIntersecting ?? false;
       this.visibility();
@@ -210,7 +250,7 @@ export class DeliveryDashGame {
     const touch = this.touchInput;
     if (!this.fullscreen && touch) this.enterFullscreen();
     if (this.engine.state === 'paused') this.engine.resume();
-    else { this.engine.start(); this.swipeHintUntil = touch && this.swipesLearned !== 3 ? 6 : 0; this.runId = startRun().catch(() => null); this.idleTime = 0; this.cameraLane = 1; this.snappyUntil = 0; this.pendingResult = null; this.boardNote = ''; this.highlightId = 0; }
+    else { this.engine.start(); this.swipeHintUntil = touch && this.swipesLearned !== 3 ? 6 : 0; this.runId = startRun().catch(() => null); this.idleTime = 0; this.cameraLane = 1; this.truckHeading = 0; this.snappyUntil = 0; this.pendingResult = null; this.boardNote = ''; this.highlightId = 0; }
     this.syncEventMarkers();
     this.lastTime = 0; this.uiTime = 0;
     this.syncUI();
@@ -338,10 +378,10 @@ export class DeliveryDashGame {
   private pointerUp(e: PointerEvent): void {
     if (this.swipeX === null || e.pointerId !== this.pointerId) return;
     const dx = e.clientX - this.swipeX, dy = e.clientY - this.swipeY;
-    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) {
+    if (Math.abs(dx) > SWIPE_MIN_DISTANCE && Math.abs(dx) > Math.abs(dy)) {
       this.engine.steer(Math.sign(dx));
       this.learnSwipe(dx < 0 ? 1 : 2);
-    } else if (Math.abs(dx) <= 24 && Math.abs(dy) <= 24) {
+    } else if (Math.abs(dx) <= TAP_MAX_DISTANCE && Math.abs(dy) <= TAP_MAX_DISTANCE) {
       const bounds = this.canvas.getBoundingClientRect();
       this.engine.steer(e.clientX < bounds.left + bounds.width / 2 ? -1 : 1);
     }
@@ -365,7 +405,24 @@ export class DeliveryDashGame {
     } else { this.lastTime = 0; this.schedule(); }
   }
 
+  /** Fullscreen fills the phone: the canvas takes the screen's aspect ratio, letterboxed only when it would get too wide. */
+  private fitScene(): void {
+    const scene = this.find('[data-scene]');
+    scene.style.flex = scene.style.width = scene.style.height = '';
+    let height = DeliveryDashGame.MIN_HEIGHT;
+    if (this.fullscreen) {
+      const availableWidth = scene.clientWidth, availableHeight = scene.clientHeight;
+      if (availableWidth > 0 && availableHeight > 0) {
+        height = Math.min(DeliveryDashGame.MAX_HEIGHT, Math.max(DeliveryDashGame.MIN_HEIGHT, Math.round(DeliveryDashGame.W * availableHeight / availableWidth)));
+        const width = Math.min(availableWidth, availableHeight * DeliveryDashGame.W / height);
+        scene.style.flex = 'none'; scene.style.width = `${width}px`; scene.style.height = `${width * height / DeliveryDashGame.W}px`;
+      }
+    }
+    if (height !== this.sceneHeight) { this.sceneHeight = height; this.canvas.height = height; }
+  }
+
   private resize(): void {
+    this.fitScene();
     const width = this.find('[data-scene]').clientWidth;
     this.hasWidth = width > 0;
     this.displayScale = Math.max(0, width / DeliveryDashGame.W);
@@ -384,9 +441,13 @@ export class DeliveryDashGame {
     const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.05) : 0;
     this.lastTime = now;
     if (this.engine.state === 'running') {
+      const previousLane = this.engine.visualLane;
       this.engine.update(dt);
-      const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / 0.45);
-      this.cameraLane += (this.engine.lanePosition - this.cameraLane) * follow;
+      const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / CAMERA_FOLLOW_SECONDS);
+      this.cameraLane += (this.engine.visualLane - this.cameraLane) * follow;
+      const laneSpeed = dt > 0 ? (this.engine.visualLane - previousLane) / dt : 0;
+      const headingTarget = this.motion.matches ? 0 : Math.max(-TRUCK_LEAN_MAX, Math.min(TRUCK_LEAN_MAX, laneSpeed * TRUCK_LEAN_PER_LANE_SPEED));
+      this.truckHeading += (headingTarget - this.truckHeading) * (1 - Math.exp(-dt / TRUCK_LEAN_SETTLE_SECONDS));
       if (this.engine.lastPowerpupAt > this.lastPowerpupAt) this.syncUI();
       if ((this.engine.state as GameState) === 'crashed') {
         const finalScore = this.engine.result.score;
@@ -474,6 +535,9 @@ export class DeliveryDashGame {
     if (engine.jackpotUntil > engine.elapsed) perks.push(`Jackpot ${remaining(engine.jackpotUntil)}s`);
     if (engine.ghostUntil > engine.elapsed) perks.push(`Ghost ${remaining(engine.ghostUntil)}s`);
     if (engine.magnet) perks.push(`Dustbuster ${remaining(engine.magnetUntil)}s`);
+    const gustChip = this.gustState();
+    if (gustChip) perks.push(`Crosswind ${gustChip.direction < 0 ? '←' : '→'}`);
+    if (engine.ferrariAhead) perks.push('Oncoming!');
     const perkLine = this.find<HTMLElement>('[data-perks]');
     const perkKey = perks.join('|');
     if (perkLine.dataset['key'] !== perkKey) {
@@ -696,7 +760,7 @@ export class DeliveryDashGame {
     const view = Math.sqrt(this.engine.pace);
     const projectedZ = 20 + (z - 20) / view;
     const scale = 120 / (Math.max(-80, projectedZ) + 120);
-    return { x: this.roadCentre(scale) + lateral * scale, y: 40 + 190 * scale, scale };
+    return { x: this.roadCentre(scale) + lateral * scale, y: 40 + (this.sceneHeight - 40) * scale, scale };
   }
 
   private roadCentre(depth: number): number {
@@ -704,16 +768,15 @@ export class DeliveryDashGame {
     const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
     // Anchor the camera at the truck's contact depth. Curvature increases into
     // the distance; every lane, obstacle and roadside object uses this centre.
-    // Nudge the vanishing point only slightly towards the truck's lane, and slowly, so the
-    // view never swings; the truck sprite is sheared to the lane direction instead (drawTruck).
-    const yaw = (this.cameraLane - 1) * (260 / 3) * 0.2 * (6 / 7 - depth);
-    return 120 + bend * (Math.pow(1 - depth, 2) - Math.pow(1 - 6 / 7, 2)) + yaw;
+    // The camera slides sideways after the truck rather than turning towards it, so the
+    // vanishing point stays put and the truck keeps facing straight up the road.
+    const pan = (this.cameraLane - 1) * (260 / 3) * CAMERA_PAN * depth;
+    return 120 + bend * (Math.pow(1 - depth, 2) - Math.pow(1 - 6 / 7, 2)) - pan;
   }
 
   private bridgeRange(): { near: number; far: number } {
-    const cycle = Math.floor((this.engine.elapsed + 8) / 80) * 80;
-    return { near: distanceAt(cycle + 24) - this.engine.distance,
-      far: distanceAt(cycle + 36) - this.engine.distance };
+    const span = nextBridge(this.engine.distance, 60);
+    return { near: span.start - this.engine.distance, far: span.end - this.engine.distance };
   }
 
   private bridgeRails(near: number, far: number): void {
@@ -736,7 +799,7 @@ export class DeliveryDashGame {
     }
     for (const z of [near, far]) for (const side of [-1, 1]) {
       const p = this.project(side * 139, z);
-      if (z < -20 || p.y < 45 || p.y > 235) continue;
+      if (z < -20 || p.y < 45 || p.y > this.sceneHeight + 5) continue;
       this.rect('#8A9690', p.x - 4 * p.scale, p.y - 16 * p.scale, 8 * p.scale, 19 * p.scale);
       this.rect('#D7D8C6', p.x - 5 * p.scale, p.y - 17 * p.scale, 10 * p.scale, 3 * p.scale);
     }
@@ -756,12 +819,13 @@ export class DeliveryDashGame {
 
   private draw(): void {
     if (this.destroyed || !this.hasWidth) return;
-    const c = this.ctx;
+    const c = this.ctx, height = this.sceneHeight, stretch = (height - 40) / 190;
     c.setTransform(1, 0, 0, 1, 0, 0); c.imageSmoothingEnabled = false;
-    this.rect('#F4F6FB', 0, 0, 240, 230);
+    this.rect('#F4F6FB', 0, 0, 240, height);
     const travel = this.engine.distance + this.idleTime;
     const bridge = this.bridgeRange();
-    const onBridge = (z: number) => z >= bridge.near && z <= bridge.far;
+    this.tunnelView = this.computeTunnelView();
+    const onBridge = (z: number) => (z >= bridge.near && z <= bridge.far) || this.inTunnel(z);
     const skyTime = this.engine.elapsed + this.idleTime / 18;
     for (const [i, startX, y] of [[0, 13, 11], [1, 142, 4], [2, 231, 22]]) {
       const cloud = this.scenery['cloud' + i];
@@ -784,20 +848,20 @@ export class DeliveryDashGame {
       c.globalAlpha = 1;
     }
     const grass = ['#A4B397', '#96AA84', '#899F73', '#7C9465', '#70875C'];
-    for (let y = 62; y < 230; y++) this.rect(grass[Math.min(4, Math.floor((y - 62) / 34))], 0, y, 240, 1);
+    for (let y = 62; y < height; y++) this.rect(grass[Math.min(4, Math.floor((y - 62) / (34 * stretch)))], 0, y, 240, 1);
     const riverTop = Math.max(44, this.project(0, bridge.far).y);
-    const riverBottom = Math.min(230, this.project(0, bridge.near).y);
+    const riverBottom = Math.min(height, this.project(0, bridge.near).y);
     if (bridge.far > 0 && riverBottom > riverTop) {
       const water = ['#A6C3C3', '#8CAFB9', '#709FAB', '#608C9B', '#537D90'];
       for (let y = Math.ceil(riverTop); y < riverBottom; y++) {
-        this.rect(water[Math.min(4, Math.floor((y - 44) / 38))], 0, y, 240, 1);
+        this.rect(water[Math.min(4, Math.floor((y - 44) / (38 * stretch)))], 0, y, 240, 1);
       }
-      if (riverBottom < 228) this.rect('#C7C6A3', 0, riverBottom, 240, 2);
+      if (riverBottom < height - 2) this.rect('#C7C6A3', 0, riverBottom, 240, 2);
       for (let i = 0; i < 34; i++) {
-        const y = 48 + (i * 41) % 180;
+        const y = 48 + (i * 41) % Math.round(180 * stretch);
         if (y <= riverTop || y >= riverBottom) continue;
         const x = ((i * 73 + skyTime * 3) % 260) - 10;
-        this.rect(i % 3 ? '#99BAC1' : '#BAD1CE', x, y, 5 + (y - 40) / 15, 1);
+        this.rect(i % 3 ? '#99BAC1' : '#BAD1CE', x, y, 5 + (y - 40) / (15 * stretch), 1);
       }
     }
     // Patches and flowers sit on the same receding plane as the road.
@@ -812,8 +876,8 @@ export class DeliveryDashGame {
       }
     }
     const asphalt = ['#6B747B', '#646E77', '#5C6670', '#55606A', '#4E5963', '#48535F', '#424D59'];
-    for (let y = 44; y < 230; y++) {
-      const depth = (y - 40) / 190, half = 130 * depth;
+    for (let y = 44; y < height; y++) {
+      const depth = (y - 40) / (height - 40), half = 130 * depth;
       const centre = this.roadCentre(depth);
       const z = 20 + (120 / depth - 140) * Math.sqrt(this.engine.pace);
       if (onBridge(z)) this.rect('#929F9F', centre - half - 7 * depth, y, half * 2 + 14 * depth, 1);
@@ -852,24 +916,27 @@ export class DeliveryDashGame {
       }
     });
     this.bridgeRails(bridge.near, bridge.far);
+    if (this.tunnelView) this.tunnelShell(this.tunnelView);
     // Roadworks become many props along their length, each sorted with the other objects.
-    const objects = this.engine.entities.filter(e => (!e.handled || e.kind !== 'gift') && e.kind !== 'roadworks')
-      .map(e => ({ z: e.z, over: e.kind === 'giftasaurus' && e.z < 90, draw: () => this.entity(e) }))
-      .concat(this.roadworksProps(travel).map(prop => ({ ...prop, over: false }))).sort((a, b) => b.z - a.z);
+    const objects: RoadObject[] = this.engine.entities.filter(e => (!e.handled || e.kind !== 'gift') && e.kind !== 'roadworks')
+      .map(e => this.roadObject(e))
+      .concat(this.roadworksProps(travel).map(prop => ({ ...prop, over: false })), this.windsockObjects()).sort((a, b) => b.z - a.z);
     // A Giftasaurus beside the truck leans over it, so its bite is drawn on top.
-    const overTruck = (o: { z: number; over: boolean }) => o.z < 20 || o.over;
-    objects.filter(o => !overTruck(o)).forEach(o => o.draw());
+    const overTruck = (o: RoadObject) => o.z < 20 || o.over;
+    objects.filter(o => !overTruck(o)).forEach(o => this.drawLit(o));
+    this.gustStreaks();
+    this.gustBar();
     this.speedStreaks();
     this.drawTruck();
-    objects.filter(overTruck).forEach(o => o.draw());
+    objects.filter(overTruck).forEach(o => this.drawLit(o));
     const sweepAge = this.engine.elapsed - this.engine.sweepAt;
     if (sweepAge >= 0 && sweepAge < 0.5 && !this.motion.matches) {
-      c.globalAlpha = 0.35 * (1 - sweepAge / 0.5); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 240, 230);
-      c.globalAlpha = 1; this.rect('#FFE08A', 0, 230 - sweepAge * 440, 240, 3);
+      c.globalAlpha = 0.35 * (1 - sweepAge / 0.5); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 240, height);
+      c.globalAlpha = 1; this.rect('#FFE08A', 0, height - sweepAge * height * 1.9, 240, 3);
     }
     this.slotPanel();
     if (this.engine.state === 'crashed') {
-      c.fillStyle = 'rgba(237,139,0,0.13)'; c.fillRect(0, 0, 240, 230);
+      c.fillStyle = 'rgba(237,139,0,0.13)'; c.fillRect(0, 0, 240, height);
     }
   }
 
@@ -879,10 +946,10 @@ export class DeliveryDashGame {
     const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
     const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
     const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, p.x + dx * s, p.y + (dy + bob) * s, w * s, h * s);
-    c.globalAlpha = calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6);
+    c.globalAlpha = (calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6)) * this.entityAlpha;
     c.fillStyle = '#FFD36B'; c.beginPath();
     c.ellipse(Math.round(p.x), Math.round(p.y + (bob - 24) * s), 30 * s, 34 * s, 0, 0, Math.PI * 2); c.fill();
-    c.globalAlpha = 1;
+    c.globalAlpha = this.entityAlpha;
     this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
     r('#002855', -17, -46, 34, 46); r('#C8102E', -15, -44, 30, 42); r('#FFC13A', -15, -44, 30, 7);
     for (let index = 0; index < 4; index++) r(!calm && Math.floor(time * 6) % 2 === index % 2 ? '#FFFFFF' : '#E08A00', -11 + index * 7, -42, 3, 3);
@@ -969,7 +1036,7 @@ export class DeliveryDashGame {
   }
 
   private cursedBanner(amount: number, settledFor: number, leaving: number, calm: boolean): void {
-    const c = this.ctx, centreX = DeliveryDashGame.W / 2, centreY = 112;
+    const c = this.ctx, centreX = DeliveryDashGame.W / 2, centreY = Math.round(this.sceneHeight / 2) - 3;
     const pop = calm ? 1 : Math.min(1, settledFor / 0.2), scale = calm ? 1 : 1.5 - 0.5 * pop * pop * (3 - 2 * pop);
     const shake = !calm && settledFor < 0.6 ? Math.round(Math.sin(settledFor * 70) * 2) : 0;
     c.save();
@@ -1017,7 +1084,7 @@ export class DeliveryDashGame {
     for (let i = 0; i < 18; i++) {
       const progress = ((phase + i * 0.0617) % 1 + 1) % 1, side = i % 2 ? 1 : -1;
       const spread = 0.35 + (i * 0.37 % 1) * 0.9;
-      const x = 120 + side * spread * progress * 160, y = 44 + progress * 200;
+      const x = 120 + side * spread * progress * 160, y = 44 + progress * (this.sceneHeight - 30);
       this.rect('#FFFFFF', x, y, 1 + progress, 3 + progress * 16 * level);
     }
     this.ctx.globalAlpha = 1;
@@ -1037,7 +1104,7 @@ export class DeliveryDashGame {
     const pulse = this.motion.matches ? 0.8 : 0.7 + 0.2 * Math.sin(this.engine.elapsed * 6);
     // Pull-in bay painted on the road in the shop's lane.
     const corners = [[-37, 20], [37, 20], [37, -20], [-37, -20]].map(([dx, dz]) => this.project(laneX + dx, e.z + dz));
-    c.globalAlpha = pulse; this.polygon('#ED8B00', corners.map(p => [p.x, p.y])); c.globalAlpha = 1;
+    c.globalAlpha = pulse * this.entityAlpha; this.polygon('#ED8B00', corners.map(p => [p.x, p.y])); c.globalAlpha = this.entityAlpha;
     for (let i = 0; i < 4; i++) {
       const z0 = e.z + 14 - i * 9, p0 = this.project(laneX - 37, z0), p1 = this.project(laneX + 37, z0), p2 = this.project(laneX, z0 - 6);
       this.polygon('#FFF2D9', [[p0.x, p0.y], [p2.x, p2.y], [p1.x, p1.y], [p1.x, p1.y - 2 * p1.scale], [p2.x, p2.y - 3 * p2.scale], [p0.x, p0.y - 2 * p0.scale]]);
@@ -1072,7 +1139,7 @@ export class DeliveryDashGame {
     const accent = late ? '#8A94A6' : '#2E9B5A';
     const pulse = this.motion.matches || late ? 0.7 : 0.7 + 0.2 * Math.sin(this.engine.elapsed * 8);
     const corners = [[-37, 20], [37, 20], [37, -20], [-37, -20]].map(([dx, dz]) => this.project(laneX + dx, e.z + dz));
-    c.globalAlpha = pulse; this.polygon(accent, corners.map(p => [p.x, p.y])); c.globalAlpha = 1;
+    c.globalAlpha = pulse * this.entityAlpha; this.polygon(accent, corners.map(p => [p.x, p.y])); c.globalAlpha = this.entityAlpha;
     for (let i = 0; i < 4; i++) {
       const z0 = e.z + 14 - i * 9, p0 = this.project(laneX - 37, z0), p1 = this.project(laneX + 37, z0), p2 = this.project(laneX, z0 - 6);
       this.polygon('#E9F7EE', [[p0.x, p0.y], [p2.x, p2.y], [p1.x, p1.y], [p1.x, p1.y - 2 * p1.scale], [p2.x, p2.y - 3 * p2.scale], [p0.x, p0.y - 2 * p0.scale]]);
@@ -1101,8 +1168,8 @@ export class DeliveryDashGame {
   private roadworksSurface(travel: number): void {
     if (!this.engine.entities.some(e => e.kind === 'roadworks')) return;
     const view = Math.sqrt(this.engine.pace);
-    for (let y = 44; y < 230; y++) {
-      const depth = (y - 40) / 190, z = 20 + (120 / depth - 140) * view;
+    for (let y = 44; y < this.sceneHeight; y++) {
+      const depth = (y - 40) / (this.sceneHeight - 40), z = 20 + (120 / depth - 140) * view;
       const closed = this.engine.closedLanesAt(z);
       if (!closed.length) continue;
       const centre = this.roadCentre(depth), width = 260 / 3 * depth;
@@ -1112,8 +1179,8 @@ export class DeliveryDashGame {
   }
 
   /** Cones along each closed lane's open edge, an arrow board at its start and a warning sign on the verge. */
-  private roadworksProps(travel: number): { z: number; draw: () => void }[] {
-    const props: { z: number; draw: () => void }[] = [];
+  private roadworksProps(travel: number): { z: number; draw: () => void; hazard?: boolean; emit?: () => void }[] {
+    const props: { z: number; draw: () => void; hazard?: boolean; emit?: () => void }[] = [];
     const horizon = 1400 * Math.sqrt(this.engine.pace);
     for (const e of this.engine.entities) {
       if (e.kind !== 'roadworks') continue;
@@ -1123,14 +1190,17 @@ export class DeliveryDashGame {
         if (neighbour < 0 || neighbour > 2) continue;
         // Cones are fixed in world space so they stream past rather than swim.
         for (let z = Math.ceil((Math.max(-40, e.z) + travel) / 40) * 40 - travel; z <= end; z += 40) {
-          if (!this.engine.closedLanesAt(z).includes(neighbour)) props.push({ z, draw: () => this.worksCone(laneX + side * 36, z) });
+          if (!this.engine.closedLanesAt(z).includes(neighbour)) props.push({ z, hazard: true, draw: () => this.worksCone(laneX + side * 36, z) });
         }
       }
       if (e.z > horizon || e.z < -40) continue;
       const open = [0, 1, 2].filter(lane => !this.engine.closedLanesAt(e.z + 1).includes(lane));
       const direction = Math.sign((open.reduce((sum, lane) => sum + lane, 0) / Math.max(1, open.length)) - e.lane);
-      props.push({ z: e.z, draw: () => this.arrowBoard(laneX, e.z, direction) });
-      if (e.lane !== 1) props.push({ z: e.z + 4, draw: () => this.worksSign((e.lane - 1) * 150, e.z + 4) });
+      if (e.maintenance) props.push({ z: e.z, hazard: true, draw: () => this.maintenanceTruck(laneX, e.z), emit: () => this.flashLamps('maintenanceTruck', laneX, e.z, MAINTENANCE_BEACON, e.id * 0.5, 4.2) });
+      else {
+        props.push({ z: e.z, hazard: true, draw: () => this.arrowBoard(laneX, e.z, direction) });
+        if (e.lane !== 1) props.push({ z: e.z + 4, hazard: true, draw: () => this.worksSign((e.lane - 1) * 150, e.z + 4) });
+      }
     }
     return props;
   }
@@ -1138,7 +1208,7 @@ export class DeliveryDashGame {
   private painter(lateral: number, z: number) {
     const p = this.project(lateral, z), s = p.scale;
     return {
-      visible: p.y <= 265,
+      visible: p.y <= this.sceneHeight + 35,
       r: (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, p.x + dx * s, p.y + dy * s, w * s, h * s),
       poly: (color: string, points: number[][]) => this.polygon(color, points.map(([dx, dy]) => [p.x + dx * s, p.y + dy * s])),
     };
@@ -1182,12 +1252,256 @@ export class DeliveryDashGame {
     r('#111111', 1, -46, 5, 1); r('#111111', 4, -45, 1, 4); r('#111111', -7, -40, 5, 2);
   }
 
+  private computeTunnelView(): { near: number; far: number } | null {
+    const tunnel = this.engine.tunnel;
+    if (!tunnel) return null;
+    const near = tunnel.start - this.engine.distance, far = tunnel.end - this.engine.distance;
+    return far < -60 || near > 1500 * Math.sqrt(this.engine.pace) ? null : { near, far };
+  }
+
+  private inTunnel(z: number): boolean { return this.tunnelView !== null && z >= this.tunnelView.near && z <= this.tunnelView.far; }
+
+  /** How visible something `z` ahead is: full outside a tunnel, fading with the seconds it is from the truck inside one. */
+  private sight(z: number, hazard: boolean, seconds = hazard ? HAZARD_SIGHT_SECONDS : GLOW_SIGHT_SECONDS): number {
+    if (!this.inTunnel(z)) return 1;
+    const ahead = (z - 20) / (this.engine.speed * seconds);
+    return ahead <= 0.35 ? 1 : Math.max(hazard ? 0 : 0.18, 1 - (ahead - 0.35) / 0.65);
+  }
+
+  /** Hazards dim into the dark; lit things glow, and an emitter (hazard lamps, a beacon) shows through the dark. */
+  private drawLit(object: RoadObject): void {
+    const c = this.ctx, glow = this.sight(object.z, false, object.sight), seen = object.hazard ? this.sight(object.z, true) : glow;
+    if (seen > 0.03) {
+      if (!object.hazard && object.glowLateral !== undefined && this.inTunnel(object.z)) this.objectGlow(object.glowLateral, object.z, seen);
+      this.entityAlpha = c.globalAlpha = seen;
+      object.draw();
+      this.entityAlpha = c.globalAlpha = 1;
+    }
+    if (object.emit && glow > 0.03) { c.globalAlpha = glow; object.emit(); c.globalAlpha = 1; }
+  }
+
+  private objectGlow(lateral: number, z: number, seen: number): void {
+    const p = this.project(lateral, z), c = this.ctx;
+    c.globalAlpha = 0.2 * seen; c.fillStyle = '#FFE9A8'; c.beginPath();
+    c.ellipse(Math.round(p.x), Math.round(p.y - 14 * p.scale), 34 * p.scale, 30 * p.scale, 0, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 1;
+  }
+
+  private roadObject(e: RoadEntity): RoadObject {
+    const lateral = (e.lane - 1) * LANE_WIDTH;
+    const base = { z: e.z, over: (e.kind === 'giftasaurus' || e.kind === 'crane') && e.z < 90, draw: () => this.entity(e) };
+    if (e.kind === 'stalledcar') return { ...base, hazard: true, emit: () => this.flashLamps('stalledCar', lateral, e.z, STALLED_CAR_LAMPS, e.id * 0.37) };
+    if (e.kind === 'gantry') return { ...base, sight: GANTRY_SIGHT_SECONDS };
+    const hazard = e.kind === 'cone' || e.kind === 'barrier' || e.kind === 'drum' || e.kind === 'pothole' || e.kind === 'giftasaurus' || e.kind === 'crane' || e.kind === 'ferrari' || e.kind === 'birds' || e.kind === 'puddle';
+    return hazard ? { ...base, hazard } : { ...base, glowLateral: lateral };
+  }
+
+  private spriteBox(name: string, lateral: number, z: number, plane = false): SpriteBox | null {
+    const image = this.scenery[name], p = this.project(lateral, z);
+    if (!image || p.y > this.sceneHeight + 35) return null;
+    const w = Math.max(1, Math.round(image.width * p.scale)), h = Math.max(1, Math.round(image.height * p.scale));
+    return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale: p.scale, baseX: p.x, baseY: p.y };
+  }
+
+  private drawSprite(name: string, lateral: number, z: number, options: { shadow?: boolean; plane?: boolean; flip?: boolean; lift?: number } = {}): SpriteBox | null {
+    const box = this.spriteBox(name, lateral, z, options.plane);
+    if (!box) return null;
+    const c = this.ctx, y = box.y - Math.round((options.lift ?? 0) * box.scale);
+    if (options.shadow) this.rect('#34424C', box.baseX - box.w * 0.46, box.baseY - box.scale, box.w * 0.92, 4 * box.scale);
+    if (options.flip) { c.save(); c.translate(box.x + box.w, y); c.scale(-1, 1); c.drawImage(box.image, 0, 0, box.w, box.h); c.restore(); }
+    else c.drawImage(box.image, box.x, y, box.w, box.h);
+    return box;
+  }
+
+  /** Flashing lamps over a sprite: bright amber with a halo while lit. */
+  private flashLamps(name: string, lateral: number, z: number, lamps: readonly (readonly number[])[], phase: number, rate = 3.4): void {
+    const box = this.spriteBox(name, lateral, z);
+    if (!box) return;
+    const c = this.ctx, lit = this.motion.matches || Math.floor(this.engine.elapsed * rate + phase) % 2 === 0, base = c.globalAlpha;
+    if (!lit) return;
+    for (const [lx, ly, lw, lh] of lamps) {
+      const cx = box.x + (lx + lw / 2) * box.scale, cy = box.y + (ly + lh / 2) * box.scale;
+      c.globalAlpha = base * 0.4; c.fillStyle = '#FFB000'; c.beginPath();
+      c.ellipse(Math.round(cx), Math.round(cy), 7 * box.scale + 2, 5 * box.scale + 2, 0, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = base;
+      this.rect('#FFC21A', box.x + lx * box.scale, box.y + ly * box.scale, lw * box.scale, lh * box.scale);
+      this.rect('#FFF3B0', box.x + (lx + 1) * box.scale, box.y + (ly + 1) * box.scale, Math.max(1, (lw - 2) * box.scale), Math.max(1, (lh - 2) * box.scale));
+    }
+    c.globalAlpha = base;
+  }
+
+  private stalledCar(e: RoadEntity): void { this.drawSprite('stalledCar', (e.lane - 1) * LANE_WIDTH, e.z, { shadow: true }); }
+
+  /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
+  private ferrari(e: RoadEntity): void {
+    const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
+    this.drawSprite('ferrari', lateral, e.z, { shadow: true });
+    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE);
+  }
+
+  private maintenanceTruck(lateral: number, z: number): void { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
+
+  /** A flock on the road: mostly still, with the odd flutter. */
+  private birds(e: RoadEntity): void {
+    const time = this.engine.elapsed, flutter = !this.motion.matches && Math.floor(time * 2.4 + e.id * 1.7) % 4 === 3;
+    this.drawSprite(flutter ? 'birdsFlapping' : 'birdsStanding', (e.lane - 1) * LANE_WIDTH, e.z, { shadow: true, lift: flutter ? 2 : 0 });
+  }
+
+  /** A large puddle lying on the road, with a glint that comes and goes. */
+  private puddle(e: RoadEntity): void {
+    const box = this.drawSprite('puddle', (e.lane - 1) * LANE_WIDTH, e.z, { plane: true });
+    if (!box || this.motion.matches) return;
+    const spot = [[0.28, 0.4], [0.62, 0.55], [0.46, 0.3]][Math.floor((this.engine.elapsed * 2 + e.id) % 3)];
+    this.rect('#FFFFFF', box.x + box.w * spot[0], box.y + box.h * spot[1], Math.max(1, 2 * box.scale), Math.max(1, 2 * box.scale));
+  }
+
+  /** An overhead lane-control gantry: a red X over each lane that will be shut ahead, a green arrow over the rest. */
+  private gantry(e: RoadEntity): void {
+    const { visible, r } = this.painter(0, e.z);
+    if (!visible) return;
+    const c = this.ctx, p = this.project(0, e.z), s = p.scale, closed = e.closed ?? [];
+    for (const side of [-1, 1]) { r('#4E5C66', side * 138 - 3, -GANTRY_HEIGHT, 6, GANTRY_HEIGHT); r('#2B3742', side * 138 - 6, -3, 12, 4); }
+    r('#3A4752', -144, -GANTRY_HEIGHT - 2, 288, 9); r('#8FA0AC', -144, -GANTRY_HEIGHT - 2, 288, 2);
+    for (const lane of [0, 1, 2]) {
+      const shut = closed.includes(lane), x = (lane - 1) * LANE_WIDTH, image = this.scenery[shut ? 'laneClosed' : 'laneOpen'];
+      c.globalAlpha = 0.28 * this.entityAlpha; c.fillStyle = shut ? '#FF3B30' : '#3CE06B'; c.beginPath();
+      c.ellipse(Math.round(p.x + x * s), Math.round(p.y + (-GANTRY_HEIGHT + 17) * s), 22 * s, 22 * s, 0, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = this.entityAlpha;
+      this.rect('#2B3742', p.x + (x - 1.5) * s, p.y + (-GANTRY_HEIGHT + 5) * s, 3 * s, 5 * s);
+      if (image) c.drawImage(image, Math.round(p.x + (x - 14) * s), Math.round(p.y + (-GANTRY_HEIGHT + 8) * s), Math.max(1, Math.round(28 * s)), Math.max(1, Math.round(28 * s)));
+    }
+  }
+
+  /** The tunnel: from outside a hill with a concrete portal, from inside dark walls, a ceiling of lamps and the bright exit. */
+  private tunnelShell(view: { near: number; far: number }): void {
+    const c = this.ctx, height = this.sceneHeight, horizon = 1500 * Math.sqrt(this.engine.pace);
+    const zFar = Math.min(view.far, horizon), zNear = Math.max(view.near, -70);
+    const edge = (side: number, z: number) => this.project(side * TUNNEL_HALF_WIDTH, z);
+    const top = (p: { y: number; scale: number }) => p.y - TUNNEL_HEIGHT * p.scale;
+    const nearLeft = edge(-1, zNear), nearRight = edge(1, zNear), farLeft = edge(-1, zFar), farRight = edge(1, zFar);
+    const leaving = Math.max(0, Math.min(1, (view.far + 20) / 80));
+    const outside = Math.max(0, Math.min(1, (view.near + 10) / 60)), inside = Math.max(0, Math.min(1, 1 - (view.near - 20) / 40));
+    if (outside > 0) {
+      c.globalAlpha = outside;
+      const roofTop = top(farLeft), faceTop = top(nearLeft), base = nearLeft.y, scale = nearLeft.scale;
+      this.polygon('#7F9A63', [[-20, roofTop], [260, roofTop], [260, faceTop], [-20, faceTop]]);
+      this.polygon('#6A8553', [[-20, roofTop + (faceTop - roofTop) * 0.55], [260, roofTop + (faceTop - roofTop) * 0.55], [260, faceTop], [-20, faceTop]]);
+      this.rect('#9AA4A8', 0, faceTop, 240, base - faceTop);
+      this.rect('#7B868C', 0, faceTop, 240, Math.max(1, 5 * scale));
+      const arch = (grow: number, color: string) => {
+        const archTop = base - TUNNEL_HEIGHT * 0.84 * scale - grow, chamfer = 18 * scale, left = nearLeft.x - grow, right = nearRight.x + grow;
+        this.polygon(color, [[left, base], [left, archTop + chamfer], [left + chamfer, archTop], [right - chamfer, archTop], [right, archTop + chamfer], [right, base]]);
+      };
+      arch(Math.max(2, 5 * scale), '#D2D8D9'); arch(0, TUNNEL_VOID);
+      for (let i = 0; i < 12; i++) this.rect(i % 2 ? '#F3EFE0' : '#ED8B00', nearLeft.x + (nearRight.x - nearLeft.x) * i / 12, faceTop + 6 * scale, (nearRight.x - nearLeft.x) / 12, Math.max(1, 5 * scale));
+      c.globalAlpha = 1;
+    }
+    if (inside > 0) {
+      c.globalAlpha = inside * leaving;
+      const wall = '#0B1424', ceiling = '#070D1B';
+      const topNearLeft = top(nearLeft), topNearRight = top(nearRight), topFarLeft = top(farLeft), topFarRight = top(farRight);
+      this.polygon(wall, [[nearLeft.x, nearLeft.y], [farLeft.x, farLeft.y], [farLeft.x, topFarLeft], [nearLeft.x, topNearLeft]]);
+      this.polygon(wall, [[nearRight.x, nearRight.y], [farRight.x, farRight.y], [farRight.x, topFarRight], [nearRight.x, topNearRight]]);
+      this.polygon(ceiling, [[nearLeft.x, topNearLeft], [farLeft.x, topFarLeft], [farRight.x, topFarRight], [nearRight.x, topNearRight]]);
+      if (view.far > horizon) this.rect(TUNNEL_VOID, farLeft.x, topFarLeft, farRight.x - farLeft.x, farLeft.y - topFarLeft);
+      const floor = c.createLinearGradient(0, farLeft.y, 0, Math.min(height, nearLeft.y));
+      floor.addColorStop(0, 'rgba(5,8,15,0.92)'); floor.addColorStop(1, 'rgba(5,8,15,0.5)');
+      c.fillStyle = floor; c.beginPath();
+      [[nearLeft.x, nearLeft.y], [farLeft.x, farLeft.y], [farRight.x, farRight.y], [nearRight.x, nearRight.y]].forEach(([x, y], i) => i ? c.lineTo(Math.round(x), Math.round(y)) : c.moveTo(Math.round(x), Math.round(y)));
+      c.closePath(); c.fill();
+      const travel = this.engine.distance + this.idleTime, phase = travel % TUNNEL_LAMP_SPACING;
+      for (let z = TUNNEL_LAMP_SPACING - phase; z < zFar; z += TUNNEL_LAMP_SPACING) {
+        if (z < Math.max(zNear, 5)) continue;
+        const p = this.project(0, z), s = p.scale, y = p.y - (TUNNEL_HEIGHT - 6) * s;
+        c.globalAlpha = 0.1 * inside * leaving; c.fillStyle = '#FFE9A8'; c.beginPath(); c.ellipse(Math.round(p.x), Math.round(p.y), 64 * s, 8 * s, 0, 0, Math.PI * 2); c.fill();
+        c.globalAlpha = 0.2 * inside * leaving; c.beginPath(); c.ellipse(Math.round(p.x), Math.round(y), 30 * s, 6 * s, 0, 0, Math.PI * 2); c.fill();
+        c.globalAlpha = inside * leaving; this.rect('#FFF4C8', p.x - 8 * s, y - s, 16 * s, 3 * s);
+        for (const side of [-1, 1]) { const w = this.project(side * (TUNNEL_HALF_WIDTH - 3), z); this.rect('#F2A13A', w.x - 2 * s, w.y - 22 * s, 4 * s, 6 * s); }
+      }
+      if (view.near < 120) {
+        const nearEdge = [this.project(-34, 28), this.project(34, 28)], farEdge = [this.project(-110, 420), this.project(110, 420)];
+        const beam = c.createLinearGradient(0, nearEdge[0].y, 0, farEdge[0].y);
+        beam.addColorStop(0, 'rgba(255,238,180,0.2)'); beam.addColorStop(1, 'rgba(255,238,180,0)');
+        c.globalAlpha = inside * leaving; c.fillStyle = beam; c.beginPath();
+        [[nearEdge[0].x, nearEdge[0].y], [farEdge[0].x, farEdge[0].y], [farEdge[1].x, farEdge[1].y], [nearEdge[1].x, nearEdge[1].y]].forEach(([x, y], i) => i ? c.lineTo(Math.round(x), Math.round(y)) : c.moveTo(Math.round(x), Math.round(y)));
+        c.closePath(); c.fill();
+      }
+      c.globalAlpha = 1;
+    }
+  }
+
+  /** The crosswind, as the truck is about to meet it or while it blows: its direction, and whether it is blowing now. */
+  private gustState(): { direction: number; active: boolean; seconds: number } | null {
+    const gust = this.engine.gust;
+    if (!gust || this.engine.state === 'ready') return null;
+    const seconds = (gust.at - this.engine.distance) / Math.max(1, this.engine.speed);
+    const active = gust.startedAt !== null && this.engine.elapsed - gust.startedAt < GUST_BUILD_SECONDS + 0.6;
+    return active || (seconds > 0 && seconds < GUST_WARNING_SECONDS) ? { direction: gust.direction, active, seconds } : null;
+  }
+
+  /** A windsock on the verge ahead of the gust: limp while it is far off, streaming once the wind is near. */
+  private windsockObjects(): RoadObject[] {
+    const gust = this.engine.gust;
+    if (!gust || this.engine.state === 'ready') return [];
+    const z = gust.at - this.engine.distance - this.engine.speed * 0.6;
+    if (z < -40 || z > 1500 * Math.sqrt(this.engine.pace)) return [];
+    const blowing = (z - 20) / Math.max(1, this.engine.speed) < GUST_WARNING_SECONDS + 0.6 || gust.startedAt !== null;
+    const lateral = -gust.direction * 152;
+    return [{ z, over: false, sight: WINDSOCK_SIGHT_SECONDS, glowLateral: lateral, draw: () => this.drawSprite(blowing ? 'windsockStreaming' : 'windsockLimp', lateral + (blowing ? gust.direction * 20 : 0), z, { flip: gust.direction < 0 && blowing }) }];
+  }
+
+  /** How far the crosswind has built, from 0 to 1 (1 is the peak, when the lane changes). */
+  private gustCharge(): number {
+    const gust = this.engine.gust;
+    return !gust || gust.startedAt === null ? 0 : Math.min(1, (this.engine.elapsed - gust.startedAt) / GUST_BUILD_SECONDS);
+  }
+
+  /** A bar that fills outward from the middle in the direction the wind will push; the lane changes when it is full. */
+  private gustBar(): void {
+    const state = this.gustState(), gust = this.engine.gust;
+    if (!state || !gust) return;
+    const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, y = 24, height = 7;
+    const peak = gust.swappedAt !== null && this.engine.elapsed - gust.swappedAt < 0.3;
+    c.globalAlpha = 0.8; this.rect('#0B1B33', centre - half - 2, y - 2, half * 2 + 4, height + 4); c.globalAlpha = 1;
+    this.rect('#27405F', centre - half, y, half * 2, height);
+    this.rect('#8FA6C4', centre - 1, y - 2, 2, height + 4);
+    const filled = Math.round(half * (peak ? 1 : charge)), left = state.direction < 0 ? centre - filled : centre;
+    const colour = peak ? '#FFFFFF' : charge < 0.5 ? '#7FD1FF' : charge < 0.85 ? '#FFC83D' : '#FF5A36';
+    this.rect(colour, left, y, filled, height);
+    const pulse = this.motion.matches || Math.floor(this.engine.elapsed * 6) % 2 === 0, tip = centre + state.direction * (half + 5);
+    for (let i = 0; i < 2; i++) {
+      const x = tip + state.direction * i * 4, lit = pulse === (i === 0);
+      c.fillStyle = lit ? '#FFC83D' : '#8FA6C4';
+      c.beginPath(); c.moveTo(Math.round(x), y); c.lineTo(Math.round(x + state.direction * 4), y + height / 2); c.lineTo(Math.round(x), y + height); c.closePath(); c.fill();
+    }
+  }
+
+  /** Wind streaks across the road in the direction it pushes, from the warning until the last shove. */
+  private gustStreaks(): void {
+    const state = this.gustState();
+    if (!state || this.motion.matches) return;
+    const c = this.ctx, time = this.engine.elapsed, strength = state.active ? 0.5 + 0.5 * this.gustCharge() : Math.max(0.2, 0.5 * (1 - state.seconds / GUST_WARNING_SECONDS));
+    c.fillStyle = '#FFFFFF';
+    for (let i = 0; i < 22; i++) {
+      const lane = (i * 37) % 100 / 100, speed = 160 + (i % 4) * 50, length = 18 + (i % 3) * 10;
+      const x = (((i * 53 + time * speed * state.direction) % 280) + 280) % 280 - 20, y = 50 + lane * (this.sceneHeight - 70);
+      c.globalAlpha = 0.7 * strength; c.fillRect(Math.round(x), Math.round(y), length, i % 3 === 0 ? 2 : 1);
+    }
+    c.globalAlpha = 1;
+  }
+
   private entity(e: RoadEntity): void {
     if (e.kind === 'shop') { this.shopEntity(e); return; }
     if (e.kind === 'delivery') { this.deliveryEntity(e); return; }
     if (e.kind === 'powerpup') { this.powerpup(e); return; }
     if (e.variant === 'slot') { this.slotEntity(e); return; }
     if (e.kind === 'giftasaurus') { this.giftasaurus(e); return; }
+    if (e.kind === 'crane') { this.crane(e); return; }
+    if (e.kind === 'ferrari') { this.ferrari(e); return; }
+    if (e.kind === 'stalledcar') { this.stalledCar(e); return; }
+    if (e.kind === 'birds') { this.birds(e); return; }
+    if (e.kind === 'puddle') { this.puddle(e); return; }
+    if (e.kind === 'gantry') { this.gantry(e); return; }
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
     if (p.y > 265) return;
     const s = p.scale, x = p.x, y = p.y;
@@ -1242,9 +1556,9 @@ export class DeliveryDashGame {
       const time = this.engine.elapsed, calm = this.motion.matches;
       const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 3, pulse = calm ? 0.3 : 0.28 + 0.12 * Math.sin(time * 6);
       const cy = -30 + bob;
-      this.ctx.globalAlpha = pulse;
+      this.ctx.globalAlpha = pulse * this.entityAlpha;
       poly('#FFD36B', [[-34, cy], [-24, cy - 22], [0, cy - 30], [24, cy - 22], [34, cy], [24, cy + 22], [0, cy + 30], [-24, cy + 22]]);
-      this.ctx.globalAlpha = 1;
+      this.ctx.globalAlpha = this.entityAlpha;
       r('#7A4A00', -25, cy - 14, 50, 30); r('#FFC13A', -24, cy - 15, 48, 28); r('#FFE49A', -24, cy - 15, 48, 4);
       r('#E08A00', -24, cy + 9, 48, 4);
       for (let i = 0; i < 5; i++) r('#B86A00', 7, cy - 14 + i * 6, 2, 3);
@@ -1285,10 +1599,10 @@ export class DeliveryDashGame {
     if (!sprite || p.y > 265) return;
     const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
     const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
-    c.globalAlpha = calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6);
+    c.globalAlpha = (calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6)) * this.entityAlpha;
     c.fillStyle = '#BFF0FF'; c.beginPath();
     c.ellipse(Math.round(p.x), Math.round(p.y + (bob - 28) * s), 32 * s, 34 * s, 0, 0, Math.PI * 2); c.fill();
-    c.globalAlpha = 1;
+    c.globalAlpha = this.entityAlpha;
     this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
     c.drawImage(sprite, Math.round(p.x - 26 * s), Math.round(p.y + (bob - 56) * s), Math.max(1, Math.round(52 * s)), Math.max(1, Math.round(56 * s)));
     // The prize at the current multiplier, so the player knows what it is worth before committing.
@@ -1333,6 +1647,41 @@ export class DeliveryDashGame {
     c.restore();
   }
 
+  /**
+   * The crane stands on a verge, left-hand facing the road and mirrored for the right, with its boom reaching over
+   * the middle of the road. The ball hangs from the cable stub on a chain and swings about it; a shadow on the road
+   * shows where it is. The chain angle comes from the engine's ball position so what is drawn is what hits the truck.
+   */
+  private crane(e: RoadEntity): void {
+    const body = this.scenery['craneBody'], ball = this.scenery['craneBall'];
+    const p = this.project(0, e.z), c = this.ctx;
+    if (!body || !ball || p.y > 265 || p.scale > 2) return;
+    const ballLane = this.engine.craneBall(e), lateral = (ballLane - 1) * LANE_WIDTH;
+    const angle = Math.asin(Math.max(-1, Math.min(1, lateral / CRANE_CHAIN)));
+    const height = (body.naturalHeight - CRANE_PIVOT.y) * CRANE_UNIT, swing = CRANE_CHAIN * Math.cos(angle);
+    c.save();
+    c.translate(Math.round(p.x), Math.round(p.y));
+    c.scale(p.scale, p.scale);
+    c.save();
+    if (e.lane === 2) c.scale(-1, 1);
+    c.drawImage(body, -CRANE_PIVOT.x * CRANE_UNIT, -body.naturalHeight * CRANE_UNIT, body.naturalWidth * CRANE_UNIT, body.naturalHeight * CRANE_UNIT);
+    c.restore();
+    const low = Math.max(0, Math.min(1, (height - swing) / 40));
+    c.globalAlpha = 0.18 + 0.12 * low;
+    c.fillStyle = '#0E1B2A'; c.beginPath();
+    c.ellipse(lateral, 0, 15 + 4 * low, 4 + low, 0, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 1;
+    c.translate(0, -height);
+    c.rotate(-angle);
+    const linkTop = CRANE_CHAIN - CRANE_BALL_CENTRE.y * CRANE_BALL_UNIT;
+    for (let link = 0; link * 5 < linkTop; link++) {
+      c.fillStyle = link % 2 ? '#3E4F60' : '#9DB0C1';
+      c.fillRect(-2, link * 5, 4, 5);
+    }
+    c.drawImage(ball, -CRANE_BALL_CENTRE.x * CRANE_BALL_UNIT, linkTop, ball.naturalWidth * CRANE_BALL_UNIT, ball.naturalHeight * CRANE_BALL_UNIT);
+    c.restore();
+  }
+
   /** Body tilt and head turn that put the jaw tip `extension` of the bite reach past the road edge. */
   private giftasaurusPose(extension: number): { bodyTilt: number; headTurn: number; unit: number; pivot: number } {
     const degrees = Math.PI / 180, socket = [8.5, -40], jaw = [32.5, -20];
@@ -1349,13 +1698,12 @@ export class DeliveryDashGame {
   }
 
   private truckLean(): number {
-    const lane = (this.engine.lanePosition - 1) * (260 / 3), near = this.project(lane, 20), far = this.project(lane, 140);
-    return Math.max(-0.25, Math.min(0.25, 0.7 * (far.x - near.x) / (near.y - far.y)));
+    return this.truckHeading;
   }
 
   private drawTruck(): void {
     if (!this.truck) return;
-    const e = this.engine, p = this.project((e.lanePosition - 1) * (260 / 3), 20);
+    const e = this.engine, p = this.project((e.visualLane - 1) * (260 / 3), 20);
     const width = 48, height = 73;
     const moving = e.state === 'running' || (e.state === 'ready' && !this.motion.matches);
     const bounce = moving && !this.motion.matches ? Math.round(Math.sin((e.elapsed + this.idleTime / 18) * 13) * 0.6) : 0;
