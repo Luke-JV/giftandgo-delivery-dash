@@ -23,6 +23,7 @@ const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 2
 /** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
 const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
 const FERRARI_SIGNAL_RATE = 9;
+const FERRARI_SIZE = 1.25;
 const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
 const TUNNEL_HEIGHT = 112;
@@ -1299,15 +1300,15 @@ export class DeliveryDashGame {
     return hazard ? { ...base, hazard } : { ...base, glowLateral: lateral };
   }
 
-  private spriteBox(name: string, lateral: number, z: number, plane = false): SpriteBox | null {
+  private spriteBox(name: string, lateral: number, z: number, plane = false, size = 1): SpriteBox | null {
     const image = this.scenery[name], p = this.project(lateral, z);
     if (!image || this.pastBottom(p.y)) return null;
-    const w = Math.max(1, Math.round(image.width * p.scale)), h = Math.max(1, Math.round(image.height * p.scale));
-    return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale: p.scale, baseX: p.x, baseY: p.y };
+    const scale = p.scale * size, w = Math.max(1, Math.round(image.width * scale)), h = Math.max(1, Math.round(image.height * scale));
+    return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale, baseX: p.x, baseY: p.y };
   }
 
-  private drawSprite(name: string, lateral: number, z: number, options: { shadow?: boolean; plane?: boolean; flip?: boolean; lift?: number } = {}): SpriteBox | null {
-    const box = this.spriteBox(name, lateral, z, options.plane);
+  private drawSprite(name: string, lateral: number, z: number, options: { shadow?: boolean; plane?: boolean; flip?: boolean; lift?: number; size?: number } = {}): SpriteBox | null {
+    const box = this.spriteBox(name, lateral, z, options.plane, options.size);
     if (!box) return null;
     const c = this.ctx, y = box.y - Math.round((options.lift ?? 0) * box.scale);
     if (options.shadow) this.rect('#34424C', box.baseX - box.w * 0.46, box.baseY - box.scale, box.w * 0.92, 4 * box.scale);
@@ -1317,8 +1318,8 @@ export class DeliveryDashGame {
   }
 
   /** Flashing lamps over a sprite: bright amber with a halo while lit. */
-  private flashLamps(name: string, lateral: number, z: number, lamps: readonly (readonly number[])[], phase: number, rate = 3.4): void {
-    const box = this.spriteBox(name, lateral, z);
+  private flashLamps(name: string, lateral: number, z: number, lamps: readonly (readonly number[])[], phase: number, rate = 3.4, size = 1): void {
+    const box = this.spriteBox(name, lateral, z, false, size);
     if (!box) return;
     const c = this.ctx, lit = this.motion.matches || Math.floor(this.engine.elapsed * rate + phase) % 2 === 0, base = c.globalAlpha;
     if (!lit) return;
@@ -1338,8 +1339,8 @@ export class DeliveryDashGame {
   /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
   private ferrari(e: RoadEntity): void {
     const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
-    this.drawSprite('ferrari', lateral, e.z, { shadow: true });
-    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE);
+    this.drawSprite('ferrari', lateral, e.z, { shadow: true, size: FERRARI_SIZE });
+    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE, FERRARI_SIZE);
   }
 
   private maintenanceTruck(lateral: number, z: number): void { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
