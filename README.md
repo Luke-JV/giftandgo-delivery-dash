@@ -79,7 +79,8 @@ never spent; gift points are a separate wallet for shops.
   Boosting does not speed it up.
 - **Multiplier chain.** Every gift collected in the guaranteed lane extends the chain; the multiplier steps up at
   5, 10, 20, 30, 40, 50 and 60 consecutive gifts (×2 to ×8). Letting a guaranteed-lane gift go by (including to take a
-  coupon) or breaking a shield resets it to ×1. Shop and delivery rows do not break it.
+  coupon) or breaking a shield resets it to ×1. Shop and delivery rows do not break it. The multiplier glows hotter
+  with each tier, pops with a **×N STREAK!** call when it steps up, and flashes red with **×N LOST** when the streak breaks.
 - **Deliveries.** Every 25–40 seconds (first around 30–35 seconds in, never on the river crossing or while a shop or coupon
   is due) a banner announces a delivery to the left or right lane. About 2.5 seconds later a green drop-off bay
   appears, and a clock starts that runs out about 0.6 seconds before an unboosted truck would arrive. Be in the
@@ -89,7 +90,7 @@ never spent; gift points are a separate wallet for shops.
   `delivery-dash.engine.ts` (`DELIVERY_*`, `MULTIPLIER_TIERS`).
 - **Snappy powerpup.** Very rarely (first 35–65 seconds in, then every 50–90 seconds) the blue Snappy mascot
   stands in a lane beside the guaranteed gift lane, glowing and circled by message icons. Drive into it for
-  250 × the multiplier, and **SNAPPY** pops up on screen. Like a coupon, taking it means passing up that row's
+  250 × the multiplier (shown above it on the road), and **SNAPPY** pops up on screen with the points it paid. Like a coupon, taking it means passing up that row's
   route gift, so it resets the chain. It never appears with a shop, delivery or roadworks. `POWERPUP_BONUS`
   sets the value.
 - **Giftasaurus.** Every 40–65 seconds (first 45–65 seconds in, never with a shop, delivery, roadworks or the gift shower)
@@ -126,7 +127,7 @@ shop. Shop rows have no hazards. Missing the lane means missing the shop.
 | Shield | 100 | Absorbs one collision; hold up to three |
 | Bigger Nitro Tank | 150 / 300 / 450 | +1s of boost per level (3s → 6s) and refills the tank |
 | Loyalty Card | 120 / 240 / 360 | +5 points per gift per level (10 → 25) |
-| Black & Decker Dustbuster | 300 | Hoovers up gifts from any lane for the rest of the run |
+| Black & Decker Dustbuster | 300 | Hoovers up gifts one lane over for 60s: from the middle lane it reaches all three, from an edge lane the middle one too. Buy it again once it runs out |
 | Freeplay | All gift points (min 10) | Converts your whole balance to score at your current multiplier |
 
 Levelled items show their current level and the next price; fully bought items show MAX. Freeplay

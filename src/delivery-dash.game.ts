@@ -1,5 +1,5 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
-import { BITE_REACH, DeliveryDashEngine, GameState, isCouponReward, isShopItem, RoadEntity, RunResult, ShopItem, SHOP_ITEMS } from './delivery-dash.engine';
+import { BITE_REACH, DeliveryDashEngine, GameState, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS } from './delivery-dash.engine';
 import { REWARD_CATALOG } from './delivery-dash.rewards';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
@@ -34,6 +34,10 @@ export class DeliveryDashGame {
   private lastGainAt = -100;
   private lastDeliveryAt = -100;
   private lastPowerpupAt = -100;
+  private lastChainBreakAt = -100;
+  private lastMultiplier = 1;
+  private streakFlashUntil = 0;
+  private streakCallUntil = 0;
   private snappyUntil = 0;
   private deliveryKey = '';
   private toastUntil = 0;
@@ -216,6 +220,8 @@ export class DeliveryDashGame {
     this.lastGainAt = this.engine.lastGainAt;
     this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
     this.lastPowerpupAt = this.engine.lastPowerpupAt;
+    this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
+    this.lastMultiplier = this.engine.multiplier;
     this.deliveryKey = '';
   }
 
@@ -405,7 +411,12 @@ export class DeliveryDashGame {
     const boardVisible = this.boardOpen && (state === 'ready' || state === 'paused' || state === 'crashed');
     this.root.dataset['boardOpen'] = String(boardVisible);
     this.find('[data-score]').textContent = Math.floor(engine.score).toLocaleString('en-US');
-    this.find('[data-multiplier]').textContent = `×${engine.multiplier}`;
+    const multiplierLabel = this.find('[data-multiplier]');
+    multiplierLabel.textContent = `×${engine.multiplier}`; multiplierLabel.dataset['tier'] = String(engine.multiplier);
+    const chainBreak = engine.lastChainBreak;
+    if (chainBreak && chainBreak.at > this.lastChainBreakAt) this.flashStreak('lost', chainBreak.lostMultiplier > 1 ? `×${chainBreak.lostMultiplier} LOST` : 'STREAK LOST');
+    else if (engine.multiplier > this.lastMultiplier) this.flashStreak('up', `×${engine.multiplier} STREAK!`);
+    this.lastChainBreakAt = chainBreak?.at ?? -100; this.lastMultiplier = engine.multiplier;
     const progress = engine.chainProgress;
     this.find<HTMLElement>('[data-chain-fill]').style.width = `${progress ? Math.round(progress.have / progress.need * 100) : 100}%`;
     this.find('[data-points]').textContent = String(engine.giftPoints);
@@ -450,6 +461,7 @@ export class DeliveryDashGame {
     if (engine.shields) perks.push(`Shield ×${engine.shields}`);
     if (engine.jackpotUntil > engine.elapsed) perks.push(`Jackpot ${remaining(engine.jackpotUntil)}s`);
     if (engine.ghostUntil > engine.elapsed) perks.push(`Ghost ${remaining(engine.ghostUntil)}s`);
+    if (engine.magnet) perks.push(`Dustbuster ${remaining(engine.magnetUntil)}s`);
     const perkLine = this.find<HTMLElement>('[data-perks]');
     const perkKey = perks.join('|');
     if (perkLine.dataset['key'] !== perkKey) {
@@ -472,12 +484,26 @@ export class DeliveryDashGame {
     this.lastGainAt = engine.lastGainAt;
     if (engine.lastPowerpupAt > this.lastPowerpupAt) {
       this.snappyUntil = engine.elapsed + 1.3;
+      this.find('[data-snappy-points]').textContent = `+${engine.lastGain}`;
       this.find('[data-live-status]').textContent = `Snappy! +${engine.lastGain} points.`;
     }
     this.lastPowerpupAt = engine.lastPowerpupAt;
     this.find<HTMLElement>('[data-swipe-hint]').hidden = state !== 'running' || engine.elapsed >= this.swipeHintUntil;
     this.find<HTMLElement>('[data-snappy]').hidden = state !== 'running' || engine.elapsed >= this.snappyUntil;
     this.find<HTMLElement>('[data-toast]').hidden = state !== 'running' || engine.elapsed >= this.toastUntil;
+    this.find<HTMLElement>('[data-streak-call]').hidden = state !== 'running' || engine.elapsed >= this.streakCallUntil;
+    if (engine.elapsed >= this.streakFlashUntil) this.find<HTMLElement>('[data-score-box]').dataset['flash'] = '';
+  }
+
+  /** Celebrate a multiplier step or flag a broken streak in red, restarting the animation even if one is still playing. */
+  private flashStreak(kind: 'up' | 'lost', text: string): void {
+    const box = this.find<HTMLElement>('[data-score-box]'), call = this.find<HTMLElement>('[data-streak-call]');
+    box.dataset['flash'] = ''; void box.offsetWidth; box.dataset['flash'] = kind;
+    call.textContent = text; call.dataset['kind'] = kind;
+    call.hidden = true; void call.offsetWidth; call.hidden = false;
+    this.streakFlashUntil = this.engine.elapsed + 0.9;
+    this.streakCallUntil = this.engine.elapsed + 1.3;
+    this.find('[data-live-status]').textContent = kind === 'up' ? text : 'Streak lost.';
   }
 
   private renderDelivery(): void {
@@ -1097,6 +1123,13 @@ export class DeliveryDashGame {
     c.globalAlpha = 1;
     this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
     c.drawImage(sprite, Math.round(p.x - 26 * s), Math.round(p.y + (bob - 56) * s), Math.max(1, Math.round(52 * s)), Math.max(1, Math.round(56 * s)));
+    // The prize at the current multiplier, so the player knows what it is worth before committing.
+    c.font = `bold ${Math.max(6, Math.round(18 * s))}px system-ui, sans-serif`;
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.lineWidth = Math.max(2, 4 * s);
+    const prize = `+${POWERPUP_BONUS * this.engine.multiplier}`, prizeY = Math.round(p.y + (bob - 72) * s);
+    c.strokeStyle = '#002855'; c.strokeText(prize, Math.round(p.x), prizeY);
+    c.fillStyle = '#FFE08A'; c.fillText(prize, Math.round(p.x), prizeY);
+    c.textAlign = 'start'; c.textBaseline = 'alphabetic';
     if (calm) return;
     ['#A77BF0', '#4FD1B5', '#5AA8F0', '#F2B84B', '#6BD66B'].forEach((color, index) => {
       const angle = Math.PI + index * Math.PI / 4 + Math.sin(time * 1.5) * 0.25;
