@@ -8,7 +8,9 @@ scenery reuses the original loading animation’s trees, layered hills and cloud
 
 ## Use in Angular
 
-Copy the eight files in `src/` into `src/app/shared/delivery-dash/`.
+Copy the ten files in `src/` into `src/app/shared/delivery-dash/`, the five `.mp3` files in `assets/music/` and
+`assets/sfx/ferrari-pass.mp3` into your app's served assets (by default the game loads them from `assets/music/` and
+`assets/sfx/`; see `musicBase` and `sfxBase`).
 Import the standalone `DeliveryDashComponent` in your page's `imports`.
 
 ```ts
@@ -37,6 +39,8 @@ success/error handling determine when the loading area is removed.
 | API | Description |
 | --- | --- |
 | `width` | Defaults to 480px. Sets the host width, with a minimum of 240px; CSS shrinks it to fit its parent. The inner game is capped at 480px. |
+| `musicBase` | Defaults to `assets/music/`. URL folder the soundtrack `.mp3` files are served from. |
+| `sfxBase` | Defaults to `assets/sfx/`. URL folder `ferrari-pass.mp3` is served from. If it is missing, a synthesised engine and horn play instead. |
 | `finished` | Emits `{ score, distance, gifts, giftPoints, coupons, spent, duration, maxMultiplier, deliveries, deliveriesMissed }` once when a run ends in a collision. Score and distance are rounded down to whole numbers (distance in metres). |
 
 ## Play
@@ -53,6 +57,16 @@ success/error handling determine when the loading area is removed.
 - Some route gifts are coloured: **blue** pays double, **green** refills the nitro tank, **purple** pays five times
   and **pink** pays double and adds a shield (you can hold one). They count towards the chain like any other gift.
 - **Pause**, P, or Escape freezes the game; **Resume drive** continues it.
+- **Music.** The soundtrack (five tracks in `assets/music/`, `MUSIC_TRACKS` in `delivery-dash.music.ts`) starts with the
+  first **Start driving**, plays in a shuffled loop through the menus, and stops while paused or when the page is hidden.
+  The speaker button in the header opens the volume sliders; music defaults to 40% (on a squared loudness curve) and is stored locally under
+  `giftgo-delivery-dash-volume`. At 0% nothing is downloaded or played.
+- **Sound effects** (`delivery-dash.sfx.ts`) are synthesised with Web Audio, so there are no extra files: a quiet tick
+  for each gift, a chime for coloured gifts and coupons, a jingle for a delivery, one shared "setback" sound for a lost
+  streak or a missed delivery, a thud when a shield takes a hit, and a crash. The
+  oncoming Ferrari roars up, pans with its lane, honks twice and drops in pitch as it passes: a bit-crushed mix of two CC0
+  BigSoundBank recordings, "Acceleration Aston Martin" (#0600) and "Car Honking at 90 km/h #3" (#3438). The volume panel has a separate **Effects** slider (default 50%, stored under
+  `giftgo-delivery-dash-sfx-volume`).
 - After a collision, **Drive again** resets the run.
 - The personal best score is stored locally under `giftgo-delivery-dash-best-score`.
 - Distances are stored in whole metres and shown in km from 1,000m (`formatDistance` in `delivery-dash.leaderboard.ts`).
@@ -210,8 +224,10 @@ rules in the engine, change this ceiling in the same commit. Remove unwanted v0.
 
 During a run a score pill (with the multiplier and a bar showing progress to the next step) and a gift-points
 pill sit over the road, with short chips for active boosts and a delivery banner when one is on, plus pause
-and fullscreen in the header and ← BOOST → underneath. Controls help, best score and the leaderboard live on
-the start screen.
+and fullscreen in the header. On desktop the keys (← → steer, ↑ boost with a charge meter, P pause) are listed
+under the road. On touch screens that strip is hidden: swipe to steer and hold the round BOOST thumb button in the
+bottom corner, whose ring shows the charge. The volume panel has a Left / Right switch for the thumb button,
+remembered on the device. Best score and the leaderboard live on the start screen.
 
 ## Fullscreen
 

@@ -1,6 +1,8 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
-import { BITE_REACH, DeliveryDashEngine, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
+import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
+import { DEFAULT_MUSIC_BASE, DeliveryDashMusic } from './delivery-dash.music';
+import { DEFAULT_SFX_BASE, DeliveryDashSfx } from './delivery-dash.sfx';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -23,7 +25,10 @@ const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 2
 /** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
 const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
 const FERRARI_SIGNAL_RATE = 9;
-const FERRARI_SIZE = 1.25;
+const FERRARI_SIZE = 1.5;
+/** Where the truck is on the road for sounds (the middle of the band where things hit it), and how long before an oncoming Ferrari gets there it honks. */
+const TRUCK_Z = 58;
+const HONK_LEAD_SECONDS = 0.3;
 const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
 const TUNNEL_HEIGHT = 112;
@@ -56,6 +61,8 @@ export class DeliveryDashGame {
   private readonly observer: ResizeObserver;
   private readonly intersection: IntersectionObserver;
   private readonly motion: MediaQueryList;
+  private readonly music: DeliveryDashMusic;
+  private readonly sfx: DeliveryDashSfx;
   private truck?: HTMLImageElement;
   private scenery: Record<string, HTMLImageElement> = {};
   private frame = 0;
@@ -83,6 +90,7 @@ export class DeliveryDashGame {
   private slotSpinKey = -1;
   private slotSide = 1;
   private lastChainBreakAt = -100;
+  private honkedCar = -1;
   private lastMultiplier = 1;
   private streakFlashUntil = 0;
   private streakCallUntil = 0;
@@ -117,13 +125,14 @@ export class DeliveryDashGame {
   private touchInput = false;
   private swipesLearned = 0;
   private swipeKey = 'giftgo-delivery-dash-swipes-learned';
+  private thumbKey = 'giftgo-delivery-dash-thumb';
   private static readonly W = 240;
   private static readonly MIN_HEIGHT = 230;
   private static readonly MAX_HEIGHT = 560;
   private sceneHeight = DeliveryDashGame.MIN_HEIGHT;
 
   constructor(private readonly root: HTMLElement, private readonly win: GameWindow,
-    private readonly onFinish: (result: RunResult) => void = () => {}) {
+    private readonly onFinish: (result: RunResult) => void = () => {}, musicBase = DEFAULT_MUSIC_BASE, sfxBase = DEFAULT_SFX_BASE) {
     this.canvas = this.find<HTMLCanvasElement>('[data-game-canvas]');
     this.logo = this.find<HTMLImageElement>('[data-truck-logo]');
     const ctx = this.canvas.getContext('2d');
@@ -138,6 +147,7 @@ export class DeliveryDashGame {
       const stored = Number(win.localStorage.getItem('giftgo-delivery-dash-best-score'));
       if (Number.isFinite(stored)) this.best = Math.max(0, Math.floor(stored));
       this.swipesLearned = Number(win.localStorage.getItem(this.swipeKey)) || 0;
+      if (win.localStorage.getItem(this.thumbKey) === 'left') this.setThumb('left');
     } catch {}
     this.logo.src = DELIVERY_DASH_ASSETS.logo;
     this.find<HTMLImageElement>('[data-brand-logo]').src = DELIVERY_DASH_ASSETS.logo;
@@ -167,6 +177,32 @@ export class DeliveryDashGame {
     listen(this.find('[data-submit]'), 'submit', event => { event.preventDefault(); void this.submitRun(); });
     try { this.find<HTMLInputElement>('[data-nickname]').value = win.localStorage.getItem(this.nicknameKey) ?? ''; } catch {}
     listen(this.find('[data-action="fullscreen"]'), 'click', () => this.toggleFullscreen());
+    this.music = new DeliveryDashMusic(win, musicBase.endsWith('/') ? musicBase : `${musicBase}/`);
+    this.sfx = new DeliveryDashSfx(win, sfxBase.endsWith('/') ? sfxBase : `${sfxBase}/`);
+    const volumeButton = this.find<HTMLButtonElement>('[data-action="volume"]');
+    const volumePanel = this.find('[data-volume-panel]');
+    const volume = this.find<HTMLInputElement>('[data-volume]');
+    const showVolume = (open: boolean) => { volumePanel.hidden = !open; volumeButton.setAttribute('aria-expanded', String(open)); };
+    listen(volumeButton, 'click', () => { showVolume(volumePanel.hidden); if (!volumePanel.hidden) volume.focus({ preventScroll: true }); });
+    listen(volume, 'input', () => { this.music.unlock(); this.sfx.unlock(); this.music.setVolume(Number(volume.value) / 100); this.syncVolume(); });
+    const sfxVolume = this.find<HTMLInputElement>('[data-sfx-volume]');
+    // A chime on release previews the new level.
+    listen(sfxVolume, 'input', () => { this.sfx.unlock(); this.sfx.setVolume(Number(sfxVolume.value) / 100); this.syncVolume(); });
+    listen(sfxVolume, 'change', () => this.sfx.play('bonusPickup'));
+    listen(this.find('.dash-thumb-toggle'), 'click', event => {
+      const side = (event.target as Element).closest<HTMLElement>('[data-thumb]')?.dataset['thumb'];
+      if (side !== 'left' && side !== 'right') return;
+      this.setThumb(side);
+      try { win.localStorage.setItem(this.thumbKey, side); } catch {}
+    });
+    listen(volumePanel.parentElement!, 'keydown', event => {
+      if ((event as KeyboardEvent).key !== 'Escape' || volumePanel.hidden) return;
+      event.preventDefault(); event.stopPropagation(); showVolume(false); volumeButton.focus({ preventScroll: true });
+    });
+    listen(root.ownerDocument, 'pointerdown', event => {
+      if (!volumePanel.hidden && !volumePanel.parentElement!.contains(event.target as Node)) showVolume(false);
+    });
+    this.syncVolume();
     listen(root.ownerDocument, 'fullscreenchange', () => this.fullscreenChanged());
     listen(win, 'popstate', () => {
       if (!this.historyEntry) return;
@@ -247,6 +283,7 @@ export class DeliveryDashGame {
   private startOrResume(): void {
     if (!this.ready || this.destroyed) return;
     this.boardOpen = false;
+    this.music.unlock(); this.sfx.unlock();
     // Touch input plays fullscreen; the click is the user gesture requestFullscreen needs.
     const touch = this.touchInput;
     if (!this.fullscreen && touch) this.enterFullscreen();
@@ -364,6 +401,12 @@ export class DeliveryDashGame {
     }
   }
 
+  /** Which corner the touch boost button sits in, for left- or right-thumbed players. */
+  private setThumb(side: 'left' | 'right'): void {
+    this.root.dataset['thumb'] = side;
+    for (const button of this.root.querySelectorAll<HTMLElement>('[data-thumb]')) button.setAttribute('aria-checked', String(button.dataset['thumb'] === side));
+  }
+
   private setTouchInput(touch: boolean): void {
     this.touchInput = touch;
     this.root.classList.toggle('dash-touch', touch);
@@ -403,7 +446,50 @@ export class DeliveryDashGame {
       this.engine.pause(); this.engine.setBoost(false); this.lastTime = 0;
       if (this.frame) this.win.cancelAnimationFrame(this.frame);
       this.frame = 0; this.syncUI();
-    } else { this.lastTime = 0; this.schedule(); }
+    } else { this.lastTime = 0; this.syncMusic(); this.schedule(); }
+  }
+
+  /** What the engine last did, taken before an update so `playSounds` can tell what happened during it. */
+  private soundMarks() {
+    const e = this.engine;
+    return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields };
+  }
+
+  /** One sound per update, the most important event winning: a shield hit also breaks the streak, a coupon pauses the run. */
+  private playSounds(before: ReturnType<DeliveryDashGame['soundMarks']>): void {
+    const e = this.engine, state = e.state as GameState, delivery = e.lastDelivery;
+    if (state === 'crashed') this.sfx.play('crash');
+    else if (state === 'reward') this.sfx.play('coupon');
+    else if (e.shields < before.shields) this.sfx.play('shieldHit');
+    else if (delivery && delivery.at > before.delivery) this.sfx.play(delivery.success ? 'delivered' : 'setback');
+    else if ((e.lastChainBreak?.at ?? -100) > before.chainBreak) this.sfx.play('setback');
+    else if ((e.lastBonusGift?.at ?? -100) > before.bonus) this.sfx.play('bonusPickup');
+    else if (e.lastPickupAt > before.pickup) this.sfx.play('pickup');
+  }
+
+  /** The soundtrack plays through menus but stops while paused or when the page is hidden. */
+  private syncMusic(): void {
+    this.music.setPlaying(this.engine.state !== 'paused' && !this.root.ownerDocument.hidden);
+    this.syncCarSound();
+  }
+
+  /** The Ferrari's engine follows it down the road while the run is live, and it honks twice as it reaches the truck. */
+  private syncCarSound(): void {
+    const car = this.engine.state === 'running' ? this.engine.entities.find(e => e.kind === 'ferrari') : undefined;
+    if (!car) { this.sfx.setCar(null); return; }
+    const ahead = car.z - TRUCK_Z, arrival = ahead / (this.engine.speed * (1 + FERRARI_PACE));
+    this.sfx.setCar({ ahead, arrival, pan: (this.engine.ferrariLane(car) - this.engine.visualLane) * 0.6 });
+    if (car.id !== this.honkedCar && arrival < HONK_LEAD_SECONDS) { this.honkedCar = car.id; this.sfx.play('honk'); }
+  }
+
+  private syncVolume(): void {
+    const percent = Math.round(this.music.volume * 100), sfxPercent = Math.round(this.sfx.volume * 100);
+    this.find<HTMLInputElement>('[data-volume]').value = String(percent);
+    this.find('[data-volume-value]').textContent = `${percent}%`;
+    this.find<HTMLInputElement>('[data-sfx-volume]').value = String(sfxPercent);
+    this.find('[data-sfx-volume-value]').textContent = `${sfxPercent}%`;
+    this.find('[data-volume-waves]').style.visibility = percent || sfxPercent ? '' : 'hidden';
+    this.find('[data-action="volume"]').setAttribute('aria-label', `Volume: music ${percent ? `${percent}%` : 'muted'}, effects ${sfxPercent ? `${sfxPercent}%` : 'muted'}`);
   }
 
   /** Fullscreen fills the phone: the canvas takes the screen's aspect ratio, letterboxed only when it would get too wide. */
@@ -442,8 +528,10 @@ export class DeliveryDashGame {
     const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.05) : 0;
     this.lastTime = now;
     if (this.engine.state === 'running') {
-      const previousLane = this.engine.visualLane;
+      const previousLane = this.engine.visualLane, marks = this.soundMarks();
       this.engine.update(dt);
+      this.playSounds(marks);
+      this.syncCarSound();
       const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / CAMERA_FOLLOW_SECONDS);
       this.cameraLane += (this.engine.visualLane - this.cameraLane) * follow;
       const laneSpeed = dt > 0 ? (this.engine.visualLane - previousLane) / dt : 0;
@@ -482,6 +570,7 @@ export class DeliveryDashGame {
   private syncUI(): void {
     const engine = this.engine, state = engine.state;
     this.root.dataset['state'] = state;
+    this.syncMusic();
     const boardVisible = this.boardOpen && (state === 'ready' || state === 'paused' || state === 'crashed');
     this.root.dataset['boardOpen'] = String(boardVisible);
     this.find('[data-score]').textContent = Math.floor(engine.score).toLocaleString('en-US');
@@ -528,8 +617,9 @@ export class DeliveryDashGame {
     boost.disabled = state !== 'running';
     boost.dataset['active'] = String(engine.boostLevel > 0.3);
     boost.dataset['locked'] = String(engine.boostLockedOut);
-    boost.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
-    this.find('[data-boost-label]').textContent = engine.boostLockedOut ? 'RECHARGING' : 'BOOST';
+    this.root.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
+    this.root.dataset['boostLocked'] = String(engine.boostLockedOut);
+    this.find('[data-boost-label]').textContent = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
     const remaining = (until: number) => Math.ceil(until - engine.elapsed);
     const perks: string[] = [];
     if (engine.shields) perks.push(`Shield ×${engine.shields}`);
@@ -1793,5 +1883,7 @@ export class DeliveryDashGame {
     if (this.frame) this.win.cancelAnimationFrame(this.frame);
     this.frame = 0; this.abort.abort(); this.win.clearTimeout(this.searchTimer);
     this.observer.disconnect(); this.intersection.disconnect();
+    this.music.destroy();
+    this.sfx.destroy();
   }
 }
