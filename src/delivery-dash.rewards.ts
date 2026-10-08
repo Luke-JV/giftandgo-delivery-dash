@@ -1,4 +1,4 @@
-import { GiftReward, GiftVariant } from './delivery-dash.engine';
+import { GiftReward, GiftVariant, SlotOutcome } from './delivery-dash.engine';
 
 export interface RewardDefinition {
   label: string;
@@ -24,7 +24,7 @@ export const REWARD_CATALOG: Record<GiftReward, RewardDefinition> = {
     icon: `<rect x="3" y="10" width="18" height="11" rx="1.5" fill="currentColor"/><path d="M12 10v11M2 7h20v3H2z" style="stroke:var(--accent)" stroke-width="2" fill="currentColor"/><path d="M12 7c-2-4-6-3-5 0M12 7c2-4 6-3 5 0" ${WHITE_STROKE} stroke-width="2"/>`,
   },
   shield: {
-    label: 'Shield', description: 'Absorbs one crash · hold up to 3', accent: '#1FA3B5', toast: 'Shield equipped!',
+    label: 'Shield', description: 'Absorbs one crash · hold one', accent: '#1FA3B5', toast: 'Shield equipped!',
     icon: `<path d="M12 2 21 5.5v6C21 17 17 20.5 12 22 7 20.5 3 17 3 11.5v-6z" fill="currentColor"/><path d="m8 12 3 3 5-6" fill="none" style="stroke:var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
   },
   nitro: {
@@ -55,7 +55,7 @@ export const PLAIN_GIFT_PALETTE: GiftPalette = {
   ribbon: '#ED8B00', ribbonHighlight: '#FFB843', bow: '#E78C14', bowLight: '#FFB13A', bowHighlight: '#FFE4A5', knot: '#D27400',
 };
 
-export const GIFT_VARIANT_PALETTES: Record<GiftVariant, GiftPalette> = {
+export const GIFT_VARIANT_PALETTES: Record<Exclude<GiftVariant, 'slot'>, GiftPalette> = {
   blue: {
     outline: '#6D93C4', front: '#BFD9F5', side: '#8FB2DE', lid: '#E3EFFC', lidSide: '#4F78B0',
     ribbon: '#1F6FD1', ribbonHighlight: '#6FB1FF', bow: '#1F5FB5', bowLight: '#4D95EE', bowHighlight: '#BFE0FF', knot: '#143F7A',
@@ -79,4 +79,14 @@ export const GIFT_VARIANT_TOASTS: Record<GiftVariant, string> = {
   green: 'Green gift! Nitro refilled',
   purple: 'Purple gift! Five times the points',
   pink: 'Pink gift! Double points and a shield',
+  slot: 'Slot machine!',
+};
+
+export const SLOT_RESULT_TOASTS: Record<SlotOutcome, string> = {
+  jackpot: 'JACKPOT!',
+  cursed: 'CURSED!',
+  triple: 'Three of a kind!',
+  pair: 'A pair!',
+  miss: 'No luck',
+  loss: 'Lump of coal!',
 };

@@ -51,7 +51,7 @@ success/error handling determine when the loading area is removed.
   hold BOOST with one thumb and steer with the arrows or by swiping with the other.
 - On the road, tap its left or right half to change one lane, or swipe horizontally.
 - Some route gifts are coloured: **blue** pays double, **green** refills the nitro tank, **purple** pays five times
-  and **pink** pays double and adds a shield (up to three). They count towards the chain like any other gift.
+  and **pink** pays double and adds a shield (you can hold one). They count towards the chain like any other gift.
 - **Pause**, P, or Escape freezes the game; **Resume drive** continues it.
 - After a collision, **Drive again** resets the run.
 - The personal best score is stored locally under `giftgo-delivery-dash-best-score`.
@@ -95,7 +95,7 @@ never spent; gift points are a separate wallet for shops.
   250 × the multiplier (shown above it on the road), and **SNAPPY** pops up on screen with the points it paid. Like a coupon, taking it means passing up that row's
   route gift, so it resets the chain. It never appears with a shop, delivery or roadworks. `POWERPUP_BONUS`
   sets the value.
-- **Giftasaurus.** Every 40–65 seconds (first 45–65 seconds in, never with a shop, delivery, roadworks or the gift shower)
+- **Giftasaurus.** Every 40–65 seconds at first, tightening to 26–44 by 10 minutes (first 45–65 seconds in, never with a shop, delivery, roadworks or the gift shower)
   a blue-striped bobblehead T-rex stands on one verge. With its feet planted it tilts in and swings its big head over
   the outer lane on that side, clamps its jaws, pulls back and rests, about 4 seconds a cycle (`BITE_CYCLE`). The jaws
   only bite while they are down on a truck in that lane (about 0.85–2.25s of each cycle); they never reach the middle
@@ -126,7 +126,7 @@ shop. Shop rows have no hazards. Missing the lane means missing the shop.
 
 | Shop item | Cost | Effect |
 | --- | --- | --- |
-| Shield | 100 | Absorbs one collision; hold up to three |
+| Shield | 100 | Absorbs one collision; hold one at a time |
 | Bigger Nitro Tank | 150 / 300 / 450 | +1s of boost per level (3s → 6s) and refills the tank |
 | Loyalty Card | 120 / 240 / 360 | +5 points per gift per level (10 → 25) |
 | Black & Decker Dustbuster | 300 | Hoovers up gifts one lane over for 60s: from the middle lane it reaches all three, from an edge lane the middle one too. Buy it again once it runs out |
@@ -185,18 +185,20 @@ same button exits.
 
 ## Difficulty and fairness
 
-Speed increases continuously with active playing time: `86 + 2.4 × seconds`
+Speed increases continuously with active playing time: `86 + 240 × (1 − e^(−t/60)) + 0.6 × t` (`SPEED_START`, `SPEED_RISE`, `SPEED_CREEP`)
 in game-world units, with no upper speed cap. The pace display starts at 1.0×,
-reaches approximately 2.7× after one minute, and continues rising. The camera
+reaches approximately 3.2× after one minute, 5.9× after five and 8× after ten, and continues rising slowly. The camera
 widens its view gradually as speed rises so approaching obstacles remain readable.
 
 Patterns alternate between single obstacles, two-lane roadwork rows, slalom
-sequences, and clear gift-collection stretches. Each row leaves a free lane;
-consecutive guaranteed routes move at most one lane. Gift boxes indicate that
-route. Changing one lane takes 0.16 seconds.
+sequences, and clear gift-collection stretches. Clear stretches thin out from a 40% chance per pattern change
+to 5%, and single-obstacle rows increasingly block both side lanes (10% of them, rising to 70% at 10 minutes). Each row leaves a free lane;
+consecutive guaranteed routes usually move at most one lane. From 2 minutes in, an edge-lane
+route increasingly jumps straight to the opposite edge (up to a 3 in 10 chance per row by 10 minutes), so the
+truck has to cross the whole road. Gift boxes indicate that route. Changing one lane takes 0.16 seconds.
 
 **Roadworks** close lanes for a long stretch (4–7 seconds of driving), roughly every
-25–40 seconds from 30 seconds in. A closure shuts one edge lane, or, increasingly as the
+22–40 seconds after the previous one ends at first, tightening to 14–28 by 10 minutes (first from 30 seconds in). A closure shuts one edge lane, or, increasingly as the
 run goes on, two lanes leaving only an edge lane open. A striped barrier with a flashing
 chevron board marks the start, a warning sign stands on the verge, and cones line the
 dug-up surface. Steering into a closed lane at any point along it is a crash (a shield
@@ -207,7 +209,7 @@ closure keep their route in an open lane, rows where a closure starts, ends or f
 left clear, and shops, coupons and delivery requests wait until the road reopens.
 
 New rows spawn 4.8 seconds ahead using the future acceleration curve. Arrival
-spacing tightens from about 1.8 seconds toward 0.8 seconds, preserving time to
+spacing tightens from about 1.6 seconds down to 0.95 at five minutes and a 0.55 second floor from ten minutes on (`ROW_GAPS`), which leaves about 200ms for a two-lane jump, preserving time to
 change lanes at higher speeds. Swept collision checks examine both the road
 position and lane-change path across each frame, so faster objects cannot skip
 through the collision area. Boosts are optional; safe routes do not require them.

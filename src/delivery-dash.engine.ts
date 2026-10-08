@@ -7,16 +7,67 @@ export type GiftReward = CouponReward | ShopItem;
 export const COUPON_REWARDS: readonly CouponReward[] = ['ghost', 'jackpot', 'rain'];
 /** Freeplay cashes in every gift point at the current multiplier; it needs at least this many. */
 export const FREEPLAY_MINIMUM = 10;
-/** Coloured gifts sit in place of a plain route gift: blue pays double, green refills the nitro tank, purple pays five times, pink pays double and adds a shield. */
-export type GiftVariant = 'blue' | 'green' | 'purple' | 'pink';
+/** Coloured gifts sit in place of a plain route gift: blue pays double, green refills the nitro tank, purple pays five times, pink pays double and adds a shield. A slot machine is a rare route gift that spins for a payout or a penalty. */
+export type GiftVariant = 'blue' | 'green' | 'purple' | 'pink' | 'slot';
 export interface GiftVariantRule { variant: GiftVariant; chance: number; multiplier: number; }
 export const GIFT_VARIANTS: readonly GiftVariantRule[] = [
   { variant: 'blue', chance: 0.1, multiplier: 2 },
   { variant: 'green', chance: 0.06, multiplier: 1 },
   { variant: 'purple', chance: 0.03, multiplier: 5 },
   { variant: 'pink', chance: 0.02, multiplier: 2 },
+  { variant: 'slot', chance: 0.02, multiplier: 1 },
 ];
-export const SHIELD_LIMIT = 3;
+export type SlotSymbol = 'seven' | 'gift' | 'star' | 'bell' | 'coal';
+export type SlotOutcome = 'jackpot' | 'cursed' | 'triple' | 'pair' | 'miss' | 'loss';
+/** A win pays `payout` × the multiplier at pickup; a loss is a flat deduction from score, never below zero. */
+export interface SlotOutcomeRule { outcome: SlotOutcome; chance: number; payout: number; }
+export const SLOT_OUTCOMES: readonly SlotOutcomeRule[] = [
+  { outcome: 'jackpot', chance: 0.03, payout: 500 },
+  { outcome: 'triple', chance: 0.12, payout: 150 },
+  { outcome: 'pair', chance: 0.3, payout: 50 },
+  { outcome: 'miss', chance: 0.245, payout: 0 },
+  { outcome: 'loss', chance: 0.3, payout: -100 },
+  { outcome: 'cursed', chance: 0.005, payout: -5000 },
+];
+export const SLOT_SYMBOLS: readonly SlotSymbol[] = ['seven', 'gift', 'star', 'bell'];
+/** Seconds after pickup at which each reel stops; the last one settles the result. */
+export const SLOT_REEL_STOPS: readonly [number, number, number] = [0.9, 1.25, 1.6];
+/** A slot machine is never offered again within this many seconds of the last one. */
+export const SLOT_MIN_GAP = 30;
+export interface SlotSpin { startedAt: number; stopAt: [number, number, number]; reels: [SlotSymbol, SlotSymbol, SlotSymbol]; outcome: SlotOutcome; amount: number; settledAt: number | null; }
+export interface SlotResult { outcome: SlotOutcome; amount: number; at: number; }
+export const SHIELD_LIMIT = 1;
+/**
+ * Speed in world units per second after t seconds driven: it climbs quickly to about 3× the starting pace in the
+ * first minute, then creeps up for the rest of the run with no ceiling. Rows are spaced in seconds, so speed
+ * sets how the game looks and scores; how hard it is to react comes from ROW_GAPS and DIFFICULTY_FROM below.
+ */
+export const SPEED_START = 86;
+export const SPEED_RISE = 240;
+export const SPEED_RISE_SECONDS = 60;
+export const SPEED_CREEP = 0.6;
+export const speedAt = (seconds: number): number => SPEED_START + SPEED_RISE * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS)) + SPEED_CREEP * seconds;
+/** Distance covered in `seconds` of driving: the integral of `speedAt`. */
+export const distanceAt = (seconds: number): number => SPEED_START * seconds + SPEED_RISE * (seconds - SPEED_RISE_SECONDS * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS))) + SPEED_CREEP / 2 * seconds * seconds;
+/**
+ * Seconds between rows at the given time into the run, linearly between these points and flat after the last.
+ * Easy to react to for the first 5 minutes, actively hard from 5 to 10, and from 10 minutes on it stays at 0.55s: a
+ * two-lane jump takes 0.32s to cross, so that leaves about 200ms to spot it and press, which is already a very good
+ * player's margin with nothing left over for fatigue or a slip.
+ */
+export const ROW_GAPS: readonly (readonly [number, number])[] = [[0, 1.6], [60, 1.4], [150, 1.2], [300, 0.95], [600, 0.55]];
+export const rowGapAt = (seconds: number): number => {
+  const next = ROW_GAPS.findIndex(([time]) => time > seconds);
+  if (next === -1) return ROW_GAPS[ROW_GAPS.length - 1][1];
+  const [fromTime, fromGap] = ROW_GAPS[next - 1], [toTime, toGap] = ROW_GAPS[next];
+  return fromGap + (toGap - fromGap) * (seconds - fromTime) / (toTime - fromTime);
+};
+/** Seconds into the run when each tuning ramp below reaches its full value; before that it eases in from its starting value. */
+const DIFFICULTY_FROM = 120;
+const DIFFICULTY_FULL = 600;
+/** 0 until DIFFICULTY_FROM, then rising to 1 at DIFFICULTY_FULL; scales how often the harder patterns and traps appear. */
+export const difficultyAt = (seconds: number): number => Math.max(0, Math.min(1, (seconds - DIFFICULTY_FROM) / (DIFFICULTY_FULL - DIFFICULTY_FROM)));
+const blend = (easy: number, hard: number, seconds: number): number => easy + (hard - easy) * difficultyAt(seconds);
 export type EntityKind = 'cone' | 'barrier' | 'drum' | 'pothole' | 'gift' | 'coupon' | 'shop' | 'delivery' | 'roadworks' | 'powerpup' | 'giftasaurus';
 /** `route` marks the guaranteed-lane gift; letting one go by breaks the multiplier chain. `variant` makes it a coloured gift with a different reward. `length` is how far a roadworks closure runs beyond `z`. `biteAt` is when a Giftasaurus bite cycle starts. */
 export interface RoadEntity { id: number; row: number; lane: number; z: number; kind: EntityKind; handled: boolean; route?: boolean; variant?: GiftVariant; length?: number; biteAt?: number; }
@@ -76,6 +127,9 @@ export class DeliveryDashEngine {
   lastGainAt = -100;
   lastChainBreak: ChainBreak | null = null;
   lastBonusGift: BonusGiftPickup | null = null;
+  slotSpin: SlotSpin | null = null;
+  lastSlotResult: SlotResult | null = null;
+  private nextSlotAt = 25;
   private nextDeliveryAt = 20;
   lastPowerpupAt = -100;
   private nextPowerpupAt = 35;
@@ -118,9 +172,9 @@ export class DeliveryDashEngine {
   private safeLane = 1;
 
   constructor(private readonly random: () => number = Math.random) {}
-  // Continuous time-based acceleration: 86 at the start, 230 after one minute.
+  // Continuous time-based acceleration: 86 at the start, about 300 after one minute, 500 after five, 690 after ten.
   // No speed ceiling; pause time does not count toward difficulty.
-  get speed(): number { return 86 + 2.4 * this.elapsed; }
+  get speed(): number { return speedAt(this.elapsed); }
   boostHeld = false;
   boostMeter = 1;
   boostLevel = 0;
@@ -129,8 +183,8 @@ export class DeliveryDashEngine {
   get magnet(): boolean { return this.magnetUntil > this.elapsed; }
   get boostActive(): boolean { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
   private get boostMultiplier(): number { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
-  get pace(): number { return this.speed * this.boostMultiplier / 86; }
-  private travelAfter(seconds: number): number { return this.speed * seconds + 1.2 * seconds * seconds; }
+  get pace(): number { return this.speed * this.boostMultiplier / SPEED_START; }
+  private travelAfter(seconds: number): number { return distanceAt(this.elapsed + seconds) - distanceAt(this.elapsed); }
   /** Score multiplier for the current chain of route gifts. */
   get multiplier(): number { return MULTIPLIER_TIERS.filter(threshold => this.chain >= threshold).length; }
   /** Progress through the current tier, or null at the cap. */
@@ -152,6 +206,7 @@ export class DeliveryDashEngine {
     this.maxMultiplier = 1; this.lastChainBreak = null; this.lastBonusGift = null; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
     this.lastPowerpupAt = -100; this.nextPowerpupAt = 35 + this.random() * 30;
     this.nextGiftasaurusAt = 45 + this.random() * 20;
+    this.slotSpin = null; this.lastSlotResult = null; this.nextSlotAt = 25 + this.random() * 20;
     this.spawnIn = 1.6;
     this.giftPoints = this.pointsEarned = this.spent = this.coupons = this.shields = this.nitroLevel = this.loyaltyLevel = 0;
     this.jackpotUntil = this.ghostUntil = this.rainUntil = this.invulnerableUntil = 0;
@@ -191,17 +246,63 @@ export class DeliveryDashEngine {
   private applyGiftVariant(variant: GiftVariant): void {
     if (variant === 'green') { this.boostMeter = 1; this.boostLocked = false; }
     if (variant === 'pink') this.shields = Math.min(SHIELD_LIMIT, this.shields + 1);
+    if (variant === 'slot') this.startSlotSpin();
     this.lastBonusGift = { variant, at: this.elapsed };
   }
 
-  /** One roll per route gift; a shield gift is never offered to a full set of shields. */
+  /** One roll per route gift; a shield gift is never offered to a full set of shields, and a slot machine only once its timer is up and no spin is running. */
   private rollGiftVariant(): GiftVariant | undefined {
     let roll = this.random();
     for (const rule of GIFT_VARIANTS) {
-      if (roll < rule.chance) return rule.variant === 'pink' && this.shields >= SHIELD_LIMIT ? undefined : rule.variant;
+      if (roll < rule.chance) {
+        if (rule.variant === 'pink' && this.shields >= SHIELD_LIMIT) return undefined;
+        if (rule.variant !== 'slot') return rule.variant;
+        if (this.elapsed < this.nextSlotAt || this.slotSpinning) return undefined;
+        this.nextSlotAt = this.elapsed + SLOT_MIN_GAP + this.random() * 30;
+        return rule.variant;
+      }
       roll -= rule.chance;
     }
     return undefined;
+  }
+
+  get slotSpinning(): boolean { return this.slotSpin !== null && this.slotSpin.settledAt === null; }
+
+  private pick<Item>(items: readonly Item[]): Item { return items[Math.floor(this.random() * items.length)]; }
+
+  /** The outcome is rolled at pickup, with the multiplier locked in, and the reels are chosen to show it. */
+  private startSlotSpin(): void {
+    let roll = this.random();
+    const rule = SLOT_OUTCOMES.find(candidate => (roll -= candidate.chance) < 0) ?? SLOT_OUTCOMES[SLOT_OUTCOMES.length - 1];
+    this.slotSpin = {
+      startedAt: this.elapsed, stopAt: [this.elapsed + SLOT_REEL_STOPS[0], this.elapsed + SLOT_REEL_STOPS[1], this.elapsed + SLOT_REEL_STOPS[2]],
+      reels: this.slotReels(rule.outcome), outcome: rule.outcome, amount: rule.payout > 0 ? rule.payout * this.multiplier : rule.payout, settledAt: null,
+    };
+  }
+
+  private slotReels(outcome: SlotOutcome): SlotSpin['reels'] {
+    if (outcome === 'jackpot') return ['seven', 'seven', 'seven'];
+    if (outcome === 'cursed') return ['coal', 'coal', 'coal'];
+    if (outcome === 'triple') { const symbol = this.pick(SLOT_SYMBOLS.filter(candidate => candidate !== 'seven')); return [symbol, symbol, symbol]; }
+    if (outcome === 'miss') {
+      const pool = [...SLOT_SYMBOLS], picks: SlotSymbol[] = [];
+      while (picks.length < 3) picks.push(pool.splice(Math.floor(this.random() * pool.length), 1)[0]);
+      return [picks[0], picks[1], picks[2]];
+    }
+    const pairSymbol: SlotSymbol = outcome === 'loss' ? 'coal' : this.pick(SLOT_SYMBOLS);
+    const odd = this.pick(SLOT_SYMBOLS.filter(candidate => candidate !== pairSymbol));
+    const reels: SlotSpin['reels'] = [pairSymbol, pairSymbol, pairSymbol];
+    reels[Math.floor(this.random() * 3)] = odd;
+    return reels;
+  }
+
+  private settleSlot(): void {
+    const spin = this.slotSpin;
+    if (!spin || spin.settledAt !== null || this.elapsed < spin.stopAt[2]) return;
+    spin.settledAt = this.elapsed;
+    if (spin.amount > 0) this.addScore(spin.amount);
+    else if (spin.amount < 0) this.score = Math.max(0, this.score + spin.amount);
+    this.lastSlotResult = { outcome: spin.outcome, amount: spin.amount, at: this.elapsed };
   }
 
   /** Nitro tank capacity in seconds of boost. */
@@ -222,7 +323,7 @@ export class DeliveryDashEngine {
     return item === 'shield' ? this.shields : item === 'nitro' ? this.nitroLevel : item === 'loyalty' ? this.loyaltyLevel : item === 'magnet' ? Number(this.magnet) : 0;
   }
 
-  /** Price of the next level, or null when sold out. Shields restock as they are used, up to three. Freeplay costs the whole balance. */
+  /** Price of the next level, or null when sold out. Shields restock as they are used, up to the limit. Freeplay costs the whole balance. */
   shopCost(item: ShopItem): number | null {
     const costs = SHOP_ITEMS.find(entry => entry.item === item)?.costs ?? [];
     if (item === 'shield') return this.shields < SHIELD_LIMIT ? costs[0] : null;
@@ -342,15 +443,16 @@ export class DeliveryDashEngine {
     }
     this.entities = this.entities.filter(e => e.z + (e.length ?? 0) > -90 && !((e.kind === 'gift' || e.kind === 'coupon' || e.kind === 'shop' || e.kind === 'delivery' || e.kind === 'powerpup') && e.handled));
     if (this.state !== 'running') return;
+    this.settleSlot();
     // Score trickles in with pace (not boost), so distance matters but never dominates.
-    this.score += this.speed / 86 * dt * this.multiplier;
+    this.score += this.speed / SPEED_START * dt * this.multiplier;
     this.updateDelivery();
     this.spawnIn -= dt;
     if (this.spawnIn <= 0) {
       // Spawn 4.8 seconds ahead, accounting for future acceleration. Density
       // increases, but adjacent rows keep at least 0.8 seconds of reaction time.
       this.spawnRow(68 + this.travelAfter(BAY_LEAD_SECONDS));
-      this.spawnIn += Math.max(0.8, 1.8 / (1 + this.elapsed / 70));
+      this.spawnIn += rowGapAt(this.elapsed);
     }
   }
 
@@ -381,7 +483,7 @@ export class DeliveryDashEngine {
     let time = 0, travelled = 0;
     while (travelled < z - 68 && time < 30) {
       time += 0.02;
-      travelled += (this.speed + 2.4 * time) * 0.02 * (time <= boostSeconds ? DeliveryDashEngine.BOOST_FACTOR : 1);
+      travelled += speedAt(this.elapsed + time) * 0.02 * (time <= boostSeconds ? DeliveryDashEngine.BOOST_FACTOR : 1);
     }
     return time;
   }
@@ -483,8 +585,8 @@ export class DeliveryDashEngine {
    */
   private startRoadworks(z: number): void {
     const openEdge = this.safeLane === 1 ? (this.random() < 0.5 ? 0 : 2) : this.safeLane;
-    const double = this.random() < Math.min(0.45, 0.2 + this.elapsed / 400);
-    const flip = double && this.random() < 0.2;
+    const double = this.random() < blend(0.2, 0.65, this.elapsed);
+    const flip = double && this.random() < blend(0.2, 0.4, this.elapsed);
     const close = (lanes: number[], from: number, seconds: number) => {
       for (const lane of lanes) this.entities.push({ id: this.nextId++, row: this.row, lane, z: from, kind: 'roadworks', handled: false, length: this.speed * seconds });
     };
@@ -496,19 +598,23 @@ export class DeliveryDashEngine {
       close([0, 1, 2].filter(l => l !== 2 - openEdge), z + this.speed * (firstSeconds + gapSeconds), secondSeconds);
       total += gapSeconds + secondSeconds;
     }
-    this.nextRoadworksAt = this.elapsed + total + 22 + this.random() * 18;
+    this.nextRoadworksAt = this.elapsed + total + blend(22, 14, this.elapsed) + this.random() * blend(18, 14, this.elapsed);
   }
 
   private spawnRow(z: number): void {
     // Successive guaranteed routes move at most one lane (a 0.16s change).
     if (this.row > 0 && this.row % 4 === 0) {
-      const patterns = (['single', 'split', 'slalom', 'breather'] as const).filter(p => p !== this.pattern);
-      this.pattern = patterns[Math.floor(this.random() * patterns.length)];
+      // Clear stretches thin out as the run goes on, but never disappear.
+      const lullChance = blend(0.4, 0.05, this.elapsed);
+      const patterns = (['single', 'split', 'slalom'] as const).filter(p => p !== this.pattern);
+      this.pattern = this.pattern !== 'breather' && this.random() < lullChance ? 'breather' : patterns[Math.floor(this.random() * patterns.length)];
     }
     if (this.pattern === 'slalom') {
       if (this.safeLane === 2) this.slalomDirection = -1;
       if (this.safeLane === 0) this.slalomDirection = 1;
       this.safeLane += this.slalomDirection;
+    } else if (this.safeLane !== 1 && this.random() < blend(0, 0.3, this.elapsed)) {
+      this.safeLane = 2 - this.safeLane;
     } else this.safeLane = Math.max(0, Math.min(2, this.safeLane + Math.floor(this.random() * 3) - 1));
     const raining = this.rainUntil > this.elapsed;
     if (!this.closedLanesAt(z, ROADWORKS_CLEARANCE).length && this.elapsed >= this.nextRoadworksAt && this.row >= 6 && !this.delivery && !raining) this.startRoadworks(z);
@@ -541,7 +647,7 @@ export class DeliveryDashEngine {
       this.timeBite(dino);
       this.entities.push(dino);
       this.entities.push({ id: this.nextId++, row: this.row, lane: side, z, kind: 'gift', handled: false, route: true });
-      this.nextGiftasaurusAt = this.elapsed + 40 + this.random() * 25;
+      this.nextGiftasaurusAt = this.elapsed + blend(40, 26, this.elapsed) + this.random() * blend(25, 18, this.elapsed);
       this.safeLane = side; this.pattern = 'single';
       this.row++;
       return;
@@ -571,7 +677,7 @@ export class DeliveryDashEngine {
     const deliveryLane = this.delivery?.lane ?? -1;
     // A delivery's lane stays clear from reservation until its bay passes.
     const hazardLanes = others.filter(l => l !== deliveryLane);
-    const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
+    const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' || this.random() < blend(0.1, 0.7, this.elapsed) ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
     const bayLane = shopRow ? shopLane : deliveryRow ? deliveryLane : -1;
     for (const lane of blocked) {
       const kinds: EntityKind[] = this.row < 3 ? ['cone', 'barrier'] : ['cone', 'barrier', 'drum', 'pothole'];
