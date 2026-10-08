@@ -1,6 +1,7 @@
 <section class="delivery-dash" aria-label="Gift and Go Delivery Dash driving game">
   <header class="dash-header">
     <img data-brand-logo width="88" height="21" alt="Gift&amp;Go" />
+    <small class="dash-version">v0.2</small>
     <button class="dash-icon-button dash-header-first" type="button" data-action="fullscreen" aria-label="Enter fullscreen" aria-pressed="false">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" data-fullscreen-icon><path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     </button>
@@ -12,7 +13,7 @@
     <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts, and grab the rare golden coupon, as the pace increases."></canvas>
     <img class="dash-truck-logo" data-truck-logo alt="" aria-hidden="true" />
     <div class="dash-hud" aria-label="Run statistics">
-      <span class="dash-score">
+      <span class="dash-score" data-score-box>
         <span class="dash-pill"><span data-score>0</span><small>pts</small><span class="dash-mult" data-multiplier>×1</span></span>
         <span class="dash-chain" aria-hidden="true"><span data-chain-fill></span></span>
       </span>
@@ -27,7 +28,8 @@
       <span class="dash-delivery-bar" aria-hidden="true"><span data-delivery-fill></span></span>
     </div>
     <span class="dash-toast" data-toast hidden></span>
-    <span class="dash-snappy" data-snappy aria-hidden="true" hidden>SNAPPY</span>
+    <span class="dash-streak-call" data-streak-call aria-hidden="true" hidden></span>
+    <span class="dash-snappy" data-snappy aria-hidden="true" hidden><span class="dash-snappy-word">SNAPPY</span><span class="dash-snappy-points" data-snappy-points></span></span>
     <div class="dash-swipe-hint" data-swipe-hint aria-hidden="true" hidden>
       <div class="dash-swipe-track">
         <svg class="dash-swipe-chevron dash-swipe-chevron-left" viewBox="0 0 16 12" width="20" height="15"><path d="M7 1L2 6l5 5M14 1L9 6l5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>

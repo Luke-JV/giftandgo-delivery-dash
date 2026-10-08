@@ -14,12 +14,17 @@ export interface RunResult { score: number; distance: number; gifts: number; gif
 /** `pending` holds the lane unannounced until its obstacles pass, `incoming` warns the player, `active` has a bay on the road against the clock, `expired` is a missed clock with the bay still ahead. */
 export interface DeliveryRequest { lane: number; phase: 'pending' | 'incoming' | 'active' | 'expired'; spawnAt: number; deadline: number; window: number; }
 export interface DeliveryOutcome { success: boolean; amount: number; at: number; }
+/** A streak that just ended: when, the multiplier it had reached and how many gifts long it was. */
+export interface ChainBreak { at: number; lostMultiplier: number; chain: number; }
 /** Consecutive route gifts needed for each multiplier step: x1, x2, ... x8. */
 export const MULTIPLIER_TIERS: readonly number[] = [0, 5, 10, 20, 30, 40, 50, 60];
 export const DELIVERY_BONUS = 100;
 export const DELIVERY_PENALTY = 50;
 /** The rare Snappy mascot pays this × the multiplier when the truck runs into it. */
 export const POWERPUP_BONUS = 250;
+/** The Dustbuster runs out after this long and reaches gifts up to this many lanes from the truck (the middle lane covers all three, an edge lane only the middle). */
+export const MAGNET_SECONDS = 60;
+const MAGNET_REACH_LANES = 1;
 /** Giftasaurus bite cycle in seconds: lean in, clamp, pull back, rest. */
 export const BITE_CYCLE: readonly number[] = [1.3, 0.6, 1.0, 1.1];
 export type BiteStage = 'lean' | 'clamp' | 'pullBack' | 'rest';
@@ -58,6 +63,7 @@ export class DeliveryDashEngine {
   lastDelivery: DeliveryOutcome | null = null;
   lastGain = 0;
   lastGainAt = -100;
+  lastChainBreak: ChainBreak | null = null;
   private nextDeliveryAt = 20;
   lastPowerpupAt = -100;
   private nextPowerpupAt = 35;
@@ -71,7 +77,7 @@ export class DeliveryDashEngine {
   shields = 0;
   nitroLevel = 0;
   loyaltyLevel = 0;
-  magnet = false;
+  magnetUntil = 0;
   jackpotUntil = 0;
   ghostUntil = 0;
   rainUntil = 0;
@@ -108,6 +114,7 @@ export class DeliveryDashEngine {
   boostLevel = 0;
   private boostLocked = false;
   static readonly BOOST_FACTOR = 1.6;
+  get magnet(): boolean { return this.magnetUntil > this.elapsed; }
   get boostActive(): boolean { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
   private get boostMultiplier(): number { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
   get pace(): number { return this.speed * this.boostMultiplier / 86; }
@@ -130,13 +137,13 @@ export class DeliveryDashEngine {
   start(): void {
     this.distance = this.elapsed = this.gifts = this.row = this.nextId = 0;
     this.score = this.chain = this.deliveries = this.deliveriesMissed = this.lastGain = 0;
-    this.maxMultiplier = 1; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
+    this.maxMultiplier = 1; this.lastChainBreak = null; this.delivery = null; this.lastDelivery = null; this.nextDeliveryAt = 20; this.lastGainAt = -100;
     this.lastPowerpupAt = -100; this.nextPowerpupAt = 35 + this.random() * 30;
     this.nextGiftasaurusAt = 45 + this.random() * 20;
     this.spawnIn = 1.6;
     this.giftPoints = this.pointsEarned = this.spent = this.coupons = this.shields = this.nitroLevel = this.loyaltyLevel = 0;
     this.jackpotUntil = this.ghostUntil = this.rainUntil = this.invulnerableUntil = 0;
-    this.magnet = false;
+    this.magnetUntil = 0;
     this.offer = []; this.lastRedeemed = null; this.sweepAt = -100;
     this.lastPickupAt = this.couponPickedAt = -100; this.nextCouponAt = 16; this.nextShopAt = 26; this.shopsVisited = 0;
     this.pattern = 'single'; this.slalomDirection = 1; this.nextRoadworksAt = 30; this.previousClosed = '';
@@ -205,7 +212,7 @@ export class DeliveryDashEngine {
     if (item === 'shield') this.shields++;
     if (item === 'nitro') { this.nitroLevel++; this.boostMeter = 1; this.boostLocked = false; }
     if (item === 'loyalty') this.loyaltyLevel++;
-    if (item === 'magnet') this.magnet = true;
+    if (item === 'magnet') this.magnetUntil = this.elapsed + MAGNET_SECONDS;
     this.lastRedeemed = item;
     return true;
   }
@@ -269,8 +276,8 @@ export class DeliveryDashEngine {
       const leave = Math.min(1, (previousZ + length - 48) / travel);
       const laneAt = (fraction: number) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
       const a = laneAt(enter), b = laneAt(leave);
-      // The Dustbuster reaches gifts in every lane.
-      const reach = e.kind === 'gift' && this.magnet ? 2.45 : 0.43;
+      // The Dustbuster reaches gifts one lane either side of the truck.
+      const reach = e.kind === 'gift' && this.magnet ? MAGNET_REACH_LANES + 0.43 : 0.43;
       if (e.kind === 'giftasaurus' ? !this.bites(e, a) && !this.bites(e, b) : Math.max(a, b) <= e.lane - reach || Math.min(a, b) >= e.lane + reach) continue;
       e.handled = true;
       if (e.kind === 'shop') {
@@ -291,12 +298,12 @@ export class DeliveryDashEngine {
       } else if (e.kind === 'delivery') this.completeDelivery();
       else if (e.kind === 'powerpup') { this.addScore(POWERPUP_BONUS * this.multiplier); this.lastPowerpupAt = this.elapsed; }
       else if (this.invulnerableUntil > this.elapsed || this.ghostUntil > this.elapsed) continue;
-      else if (this.shields > 0) { this.shields--; this.invulnerableUntil = this.elapsed + 0.55; this.chain = 0; }
+      else if (this.shields > 0) { this.shields--; this.invulnerableUntil = this.elapsed + 0.55; this.breakChain(); }
       else { this.state = 'crashed'; this.crashLane = e.lane; break; }
     }
     for (const e of this.entities) {
       if (e.z >= 48 || e.handled) continue;
-      if (e.kind === 'gift' && e.route) { e.route = false; this.chain = 0; }
+      if (e.kind === 'gift' && e.route) { e.route = false; this.breakChain(); }
       else if (e.kind === 'delivery') { e.handled = true; this.missDelivery(); this.delivery = null; }
     }
     this.entities = this.entities.filter(e => e.z + (e.length ?? 0) > -90 && !((e.kind === 'gift' || e.kind === 'coupon' || e.kind === 'shop' || e.kind === 'delivery' || e.kind === 'powerpup') && e.handled));
@@ -366,6 +373,11 @@ export class DeliveryDashEngine {
   private addScore(amount: number): void {
     this.score += amount;
     this.lastGain = Math.round(amount); this.lastGainAt = this.elapsed;
+  }
+
+  private breakChain(): void {
+    if (this.chain > 0) this.lastChainBreak = { at: this.elapsed, lostMultiplier: this.multiplier, chain: this.chain };
+    this.chain = 0;
   }
 
   private extendChain(count: number): void {

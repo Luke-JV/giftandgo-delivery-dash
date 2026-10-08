@@ -4,6 +4,7 @@
 <section class="delivery-dash" aria-label="Gift and Go Delivery Dash driving game">
   <header class="dash-header">
     <img data-brand-logo width="88" height="21" alt="Gift&amp;Go" />
+    <small class="dash-version">v0.2</small>
     <button class="dash-icon-button dash-header-first" type="button" data-action="fullscreen" aria-label="Enter fullscreen" aria-pressed="false">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" data-fullscreen-icon><path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     </button>
@@ -15,7 +16,7 @@
     <canvas data-game-canvas width="240" height="230" aria-label="Three-lane road. Steer left and right to dodge cones, barriers, traffic drums and potholes. Collect gifts, and grab the rare golden coupon, as the pace increases."></canvas>
     <img class="dash-truck-logo" data-truck-logo alt="" aria-hidden="true" />
     <div class="dash-hud" aria-label="Run statistics">
-      <span class="dash-score">
+      <span class="dash-score" data-score-box>
         <span class="dash-pill"><span data-score>0</span><small>pts</small><span class="dash-mult" data-multiplier>×1</span></span>
         <span class="dash-chain" aria-hidden="true"><span data-chain-fill></span></span>
       </span>
@@ -30,7 +31,8 @@
       <span class="dash-delivery-bar" aria-hidden="true"><span data-delivery-fill></span></span>
     </div>
     <span class="dash-toast" data-toast hidden></span>
-    <span class="dash-snappy" data-snappy aria-hidden="true" hidden>SNAPPY</span>
+    <span class="dash-streak-call" data-streak-call aria-hidden="true" hidden></span>
+    <span class="dash-snappy" data-snappy aria-hidden="true" hidden><span class="dash-snappy-word">SNAPPY</span><span class="dash-snappy-points" data-snappy-points></span></span>
     <div class="dash-swipe-hint" data-swipe-hint aria-hidden="true" hidden>
       <div class="dash-swipe-track">
         <svg class="dash-swipe-chevron dash-swipe-chevron-left" viewBox="0 0 16 12" width="20" height="15"><path d="M7 1L2 6l5 5M14 1L9 6l5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -101,6 +103,7 @@
 
 .dash-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .dash-header img { display: block; object-fit: contain; }
+.dash-version { align-self: flex-end; margin-left: -2px; font-size: 10px; line-height: 1; opacity: 0.55; }
 .dash-header-first { margin-left: auto; }
 .dash-icon-button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; background: #123C68; border: 0; border-radius: 8px; color: #FFF; }
 
@@ -115,7 +118,27 @@
 .dash-pill small { font-size: 11px; font-weight: 600; color: #AEC3DC; }
 .dash-pill-points { color: #FFC35B; align-self: flex-start; }
 .dash-score { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.dash-mult { margin-left: 2px; color: #FFC35B; font-size: 14px; font-weight: 800; }
+.dash-mult { margin-left: 2px; color: #FFC35B; font-size: 14px; font-weight: 800; transition: color 0.2s, text-shadow 0.2s; }
+.dash-mult:is([data-tier="2"], [data-tier="3"]) { color: #FFB21E; text-shadow: 0 0 6px #ED8B00; }
+.dash-mult:is([data-tier="4"], [data-tier="5"]) { color: #FF9A2E; font-size: 15px; text-shadow: 0 0 8px #FF6A00, 0 0 14px #ED8B0099; }
+.dash-mult:is([data-tier="6"], [data-tier="7"], [data-tier="8"]) { color: #FFF2B8; font-size: 16px; text-shadow: 0 0 8px #FFC35B, 0 0 16px #FF6A00; animation: dash-mult-fire 0.8s ease-in-out infinite alternate; }
+.dash-score[data-flash="up"] .dash-pill { animation: dash-pill-up 0.9s ease-out; }
+.dash-score[data-flash="up"] .dash-mult { animation: dash-mult-pop 0.9s ease-out; }
+.dash-score[data-flash="up"] .dash-chain span { background: #FFF2B8; box-shadow: 0 0 8px #FFC35B; }
+.dash-score[data-flash="lost"] .dash-pill { animation: dash-pill-lost 0.9s ease-out; }
+.dash-score[data-flash="lost"] .dash-mult { color: #FF5A4D; text-shadow: 0 0 6px #FF2A1A; }
+.dash-score[data-flash="lost"] .dash-chain span { background: #FF5A4D; }
+@keyframes dash-mult-fire { to { transform: scale(1.12); } }
+@keyframes dash-mult-pop { 0% { transform: scale(2.2); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes dash-pill-up { 0% { box-shadow: 0 0 0 0 #FFC35BCC; } 35% { box-shadow: 0 0 0 5px #FFC35B88, 0 0 18px #ED8B00; } 100% { box-shadow: 0 0 0 0 #FFC35B00; } }
+@keyframes dash-pill-lost {
+  0% { transform: none; box-shadow: 0 0 0 4px #FF3B2AAA, 0 0 14px #FF3B2A; }
+  15% { transform: translateX(-4px); }
+  30% { transform: translateX(4px); }
+  45% { transform: translateX(-3px); }
+  60% { transform: translateX(3px); }
+  100% { transform: none; box-shadow: 0 0 0 0 #FF3B2A00; }
+}
 .dash-chain { display: block; width: 100%; height: 3px; overflow: hidden; border-radius: 2px; background: #FFFFFF33; }
 .dash-chain span { display: block; width: 0; height: 100%; background: #FFC35B; transition: width 0.15s linear; }
 .dash-delivery { position: absolute; top: 46px; right: 10px; min-width: 128px; max-width: 55%; padding: 6px 10px 8px; border-radius: 10px; background: #002855D9; color: #FFF; font-size: 12px; font-weight: 750; letter-spacing: 0.4px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -126,7 +149,27 @@
 .dash-perks { position: absolute; top: 52px; left: 10px; display: flex; flex-wrap: wrap; gap: 4px; max-width: 70%; pointer-events: none; }
 .dash-perks span { padding: 3px 8px; border-radius: 999px; background: #002855D9; color: #FFCF80; font-size: 11px; font-weight: 650; }
 .dash-toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: #ED8B00; color: #0A1D40; font-weight: 750; font-size: 12px; white-space: nowrap; pointer-events: none; }
-.dash-snappy { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) rotate(-7deg); color: #FFF; font-size: 42px; font-weight: 900; font-style: italic; letter-spacing: 1px; line-height: 1; text-decoration: line-through; text-decoration-color: #ED8B00; text-decoration-thickness: 6px; text-shadow: 0 3px 0 #002855, 0 0 12px #3C9FE4; pointer-events: none; animation: dash-snappy-pop 1.3s ease-out forwards; }
+.dash-snappy { position: absolute; top: 34%; left: 50%; display: flex; flex-direction: column; align-items: center; gap: 4px; transform: translate(-50%, -50%) rotate(-7deg); color: #FFF; font-style: italic; line-height: 1; pointer-events: none; animation: dash-snappy-pop 1.3s ease-out forwards; }
+.dash-snappy-word { font-size: 42px; font-weight: 900; letter-spacing: 1px; text-decoration: line-through; text-decoration-color: #ED8B00; text-decoration-thickness: 6px; text-shadow: 0 3px 0 #002855, 0 0 12px #3C9FE4; }
+.dash-snappy-points { font-size: 30px; font-weight: 900; color: #FFE08A; text-shadow: 0 3px 0 #002855, 0 0 10px #ED8B00; }
+.dash-streak-call { position: absolute; top: 82px; left: 10px; transform-origin: left center; color: #FFE08A; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: 0.5px; line-height: 1; text-shadow: 0 2px 0 #002855, 0 0 10px #ED8B00; pointer-events: none; animation: dash-streak-up 1.3s ease-out forwards; }
+.dash-streak-call[data-kind="lost"] { color: #FF5A4D; text-shadow: 0 2px 0 #002855, 0 0 10px #FF2A1A; animation-name: dash-streak-lost; }
+@keyframes dash-streak-up {
+  0% { opacity: 0; transform: scale(0.4); }
+  20% { opacity: 1; transform: scale(1.25); }
+  35% { transform: scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes dash-streak-lost {
+  0% { opacity: 0; transform: scale(1.6); }
+  15% { opacity: 1; transform: scale(1) translateX(-5px); }
+  25% { transform: translateX(5px); }
+  35% { transform: translateX(-3px); }
+  45% { transform: none; }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(10px); }
+}
 @keyframes dash-snappy-pop {
   0% { opacity: 0; transform: translate(-50%, -50%) rotate(-7deg) scale(0.3); }
   18% { opacity: 1; transform: translate(-50%, -50%) rotate(-7deg) scale(1.15); }
@@ -134,7 +177,9 @@
   75% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -70%) rotate(-7deg) scale(1); }
 }
-@media (prefers-reduced-motion: reduce) { .dash-snappy { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .dash-snappy, .dash-streak-call, .dash-mult, .dash-score .dash-pill { animation: none !important; }
+}
 
 .dash-swipe-hint { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; animation: dash-swipe-in 0.3s ease-out; }
 .dash-swipe-track { position: relative; width: 156px; height: 40px; }
@@ -290,7 +335,7 @@ const REWARD_CATALOG = {
         icon: `<rect x="2" y="5" width="20" height="14" rx="2" fill="currentColor"/><path d="M2 9h20" style="stroke:var(--accent)" stroke-width="2.4"/><path d="M5 15h6" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round"/>`,
     },
     magnet: {
-        label: 'Black & Decker Dustbuster', description: 'Hoovers up gifts from any lane', accent: '#D9381E', toast: 'Dustbuster fitted!',
+        label: 'Black & Decker Dustbuster', description: 'Hoovers up gifts one lane over · 60s', accent: '#D9381E', toast: 'Dustbuster fitted!',
         icon: `<path d="M4 3h6v9a2 2 0 0 0 4 0V3h6v9a8 8 0 0 1-16 0z" fill="currentColor"/><path d="M4 3h6v4H4zM14 3h6v4h-6z" style="fill:#002855"/>`,
     },
     freeplay: {
@@ -308,6 +353,9 @@ const DELIVERY_BONUS = 100;
 const DELIVERY_PENALTY = 50;
 /** The rare Snappy mascot pays this × the multiplier when the truck runs into it. */
 const POWERPUP_BONUS = 250;
+/** The Dustbuster runs out after this long and reaches gifts up to this many lanes from the truck (the middle lane covers all three, an edge lane only the middle). */
+const MAGNET_SECONDS = 60;
+const MAGNET_REACH_LANES = 1;
 /** Giftasaurus bite cycle in seconds: lean in, clamp, pull back, rest. */
 const BITE_CYCLE = [1.3, 0.6, 1.0, 1.1];
 /** How far the jaws reach past the road edge at full stretch, in lanes: over a truck in the outer lane, short of the middle one. */
@@ -346,6 +394,7 @@ class DeliveryDashEngine {
         this.lastDelivery = null;
         this.lastGain = 0;
         this.lastGainAt = -100;
+        this.lastChainBreak = null;
         this.nextDeliveryAt = 20;
         this.lastPowerpupAt = -100;
         this.nextPowerpupAt = 35;
@@ -359,7 +408,7 @@ class DeliveryDashEngine {
         this.shields = 0;
         this.nitroLevel = 0;
         this.loyaltyLevel = 0;
-        this.magnet = false;
+        this.magnetUntil = 0;
         this.jackpotUntil = 0;
         this.ghostUntil = 0;
         this.rainUntil = 0;
@@ -395,6 +444,7 @@ class DeliveryDashEngine {
     // No speed ceiling; pause time does not count toward difficulty.
     get speed() { return 86 + 2.4 * this.elapsed; }
     static { this.BOOST_FACTOR = 1.6; }
+    get magnet() { return this.magnetUntil > this.elapsed; }
     get boostActive() { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
     get boostMultiplier() { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
     get pace() { return this.speed * this.boostMultiplier / 86; }
@@ -417,6 +467,7 @@ class DeliveryDashEngine {
         this.distance = this.elapsed = this.gifts = this.row = this.nextId = 0;
         this.score = this.chain = this.deliveries = this.deliveriesMissed = this.lastGain = 0;
         this.maxMultiplier = 1;
+        this.lastChainBreak = null;
         this.delivery = null;
         this.lastDelivery = null;
         this.nextDeliveryAt = 20;
@@ -427,7 +478,7 @@ class DeliveryDashEngine {
         this.spawnIn = 1.6;
         this.giftPoints = this.pointsEarned = this.spent = this.coupons = this.shields = this.nitroLevel = this.loyaltyLevel = 0;
         this.jackpotUntil = this.ghostUntil = this.rainUntil = this.invulnerableUntil = 0;
-        this.magnet = false;
+        this.magnetUntil = 0;
         this.offer = [];
         this.lastRedeemed = null;
         this.sweepAt = -100;
@@ -510,7 +561,7 @@ class DeliveryDashEngine {
         if (item === 'loyalty')
             this.loyaltyLevel++;
         if (item === 'magnet')
-            this.magnet = true;
+            this.magnetUntil = this.elapsed + MAGNET_SECONDS;
         this.lastRedeemed = item;
         return true;
     }
@@ -581,8 +632,8 @@ class DeliveryDashEngine {
             const leave = Math.min(1, (previousZ + length - 48) / travel);
             const laneAt = (fraction) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
             const a = laneAt(enter), b = laneAt(leave);
-            // The Dustbuster reaches gifts in every lane.
-            const reach = e.kind === 'gift' && this.magnet ? 2.45 : 0.43;
+            // The Dustbuster reaches gifts one lane either side of the truck.
+            const reach = e.kind === 'gift' && this.magnet ? MAGNET_REACH_LANES + 0.43 : 0.43;
             if (e.kind === 'giftasaurus' ? !this.bites(e, a) && !this.bites(e, b) : Math.max(a, b) <= e.lane - reach || Math.min(a, b) >= e.lane + reach)
                 continue;
             e.handled = true;
@@ -616,7 +667,7 @@ class DeliveryDashEngine {
             else if (this.shields > 0) {
                 this.shields--;
                 this.invulnerableUntil = this.elapsed + 0.55;
-                this.chain = 0;
+                this.breakChain();
             }
             else {
                 this.state = 'crashed';
@@ -629,7 +680,7 @@ class DeliveryDashEngine {
                 continue;
             if (e.kind === 'gift' && e.route) {
                 e.route = false;
-                this.chain = 0;
+                this.breakChain();
             }
             else if (e.kind === 'delivery') {
                 e.handled = true;
@@ -699,6 +750,11 @@ class DeliveryDashEngine {
         this.score += amount;
         this.lastGain = Math.round(amount);
         this.lastGainAt = this.elapsed;
+    }
+    breakChain() {
+        if (this.chain > 0)
+            this.lastChainBreak = { at: this.elapsed, lostMultiplier: this.multiplier, chain: this.chain };
+        this.chain = 0;
     }
     extendChain(count) {
         this.chain += count;
@@ -1004,6 +1060,10 @@ class DeliveryDashGame {
         this.lastGainAt = -100;
         this.lastDeliveryAt = -100;
         this.lastPowerpupAt = -100;
+        this.lastChainBreakAt = -100;
+        this.lastMultiplier = 1;
+        this.streakFlashUntil = 0;
+        this.streakCallUntil = 0;
         this.snappyUntil = 0;
         this.deliveryKey = '';
         this.toastUntil = 0;
@@ -1235,6 +1295,8 @@ class DeliveryDashGame {
         this.lastGainAt = this.engine.lastGainAt;
         this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
         this.lastPowerpupAt = this.engine.lastPowerpupAt;
+        this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
+        this.lastMultiplier = this.engine.multiplier;
         this.deliveryKey = '';
     }
     showToast(text) {
@@ -1472,7 +1534,16 @@ class DeliveryDashGame {
         const boardVisible = this.boardOpen && (state === 'ready' || state === 'paused' || state === 'crashed');
         this.root.dataset['boardOpen'] = String(boardVisible);
         this.find('[data-score]').textContent = Math.floor(engine.score).toLocaleString('en-US');
-        this.find('[data-multiplier]').textContent = `×${engine.multiplier}`;
+        const multiplierLabel = this.find('[data-multiplier]');
+        multiplierLabel.textContent = `×${engine.multiplier}`;
+        multiplierLabel.dataset['tier'] = String(engine.multiplier);
+        const chainBreak = engine.lastChainBreak;
+        if (chainBreak && chainBreak.at > this.lastChainBreakAt)
+            this.flashStreak('lost', chainBreak.lostMultiplier > 1 ? `×${chainBreak.lostMultiplier} LOST` : 'STREAK LOST');
+        else if (engine.multiplier > this.lastMultiplier)
+            this.flashStreak('up', `×${engine.multiplier} STREAK!`);
+        this.lastChainBreakAt = chainBreak?.at ?? -100;
+        this.lastMultiplier = engine.multiplier;
         const progress = engine.chainProgress;
         this.find('[data-chain-fill]').style.width = `${progress ? Math.round(progress.have / progress.need * 100) : 100}%`;
         this.find('[data-points]').textContent = String(engine.giftPoints);
@@ -1520,6 +1591,8 @@ class DeliveryDashGame {
             perks.push(`Jackpot ${remaining(engine.jackpotUntil)}s`);
         if (engine.ghostUntil > engine.elapsed)
             perks.push(`Ghost ${remaining(engine.ghostUntil)}s`);
+        if (engine.magnet)
+            perks.push(`Dustbuster ${remaining(engine.magnetUntil)}s`);
         const perkLine = this.find('[data-perks]');
         const perkKey = perks.join('|');
         if (perkLine.dataset['key'] !== perkKey) {
@@ -1543,12 +1616,31 @@ class DeliveryDashGame {
         this.lastGainAt = engine.lastGainAt;
         if (engine.lastPowerpupAt > this.lastPowerpupAt) {
             this.snappyUntil = engine.elapsed + 1.3;
+            this.find('[data-snappy-points]').textContent = `+${engine.lastGain}`;
             this.find('[data-live-status]').textContent = `Snappy! +${engine.lastGain} points.`;
         }
         this.lastPowerpupAt = engine.lastPowerpupAt;
         this.find('[data-swipe-hint]').hidden = state !== 'running' || engine.elapsed >= this.swipeHintUntil;
         this.find('[data-snappy]').hidden = state !== 'running' || engine.elapsed >= this.snappyUntil;
         this.find('[data-toast]').hidden = state !== 'running' || engine.elapsed >= this.toastUntil;
+        this.find('[data-streak-call]').hidden = state !== 'running' || engine.elapsed >= this.streakCallUntil;
+        if (engine.elapsed >= this.streakFlashUntil)
+            this.find('[data-score-box]').dataset['flash'] = '';
+    }
+    /** Celebrate a multiplier step or flag a broken streak in red, restarting the animation even if one is still playing. */
+    flashStreak(kind, text) {
+        const box = this.find('[data-score-box]'), call = this.find('[data-streak-call]');
+        box.dataset['flash'] = '';
+        void box.offsetWidth;
+        box.dataset['flash'] = kind;
+        call.textContent = text;
+        call.dataset['kind'] = kind;
+        call.hidden = true;
+        void call.offsetWidth;
+        call.hidden = false;
+        this.streakFlashUntil = this.engine.elapsed + 0.9;
+        this.streakCallUntil = this.engine.elapsed + 1.3;
+        this.find('[data-live-status]').textContent = kind === 'up' ? text : 'Streak lost.';
     }
     renderDelivery() {
         const engine = this.engine, request = engine.delivery;
@@ -2322,6 +2414,19 @@ class DeliveryDashGame {
         c.globalAlpha = 1;
         this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
         c.drawImage(sprite, Math.round(p.x - 26 * s), Math.round(p.y + (bob - 56) * s), Math.max(1, Math.round(52 * s)), Math.max(1, Math.round(56 * s)));
+        // The prize at the current multiplier, so the player knows what it is worth before committing.
+        c.font = `bold ${Math.max(6, Math.round(18 * s))}px system-ui, sans-serif`;
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.lineJoin = 'round';
+        c.lineWidth = Math.max(2, 4 * s);
+        const prize = `+${POWERPUP_BONUS * this.engine.multiplier}`, prizeY = Math.round(p.y + (bob - 72) * s);
+        c.strokeStyle = '#002855';
+        c.strokeText(prize, Math.round(p.x), prizeY);
+        c.fillStyle = '#FFE08A';
+        c.fillText(prize, Math.round(p.x), prizeY);
+        c.textAlign = 'start';
+        c.textBaseline = 'alphabetic';
         if (calm)
             return;
         ['#A77BF0', '#4FD1B5', '#5AA8F0', '#F2B84B', '#6BD66B'].forEach((color, index) => {

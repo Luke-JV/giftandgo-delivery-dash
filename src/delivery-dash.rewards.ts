@@ -36,7 +36,7 @@ export const REWARD_CATALOG: Record<GiftReward, RewardDefinition> = {
     icon: `<rect x="2" y="5" width="20" height="14" rx="2" fill="currentColor"/><path d="M2 9h20" style="stroke:var(--accent)" stroke-width="2.4"/><path d="M5 15h6" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round"/>`,
   },
   magnet: {
-    label: 'Black & Decker Dustbuster', description: 'Hoovers up gifts from any lane', accent: '#D9381E', toast: 'Dustbuster fitted!',
+    label: 'Black & Decker Dustbuster', description: 'Hoovers up gifts one lane over · 60s', accent: '#D9381E', toast: 'Dustbuster fitted!',
     icon: `<path d="M4 3h6v9a2 2 0 0 0 4 0V3h6v9a8 8 0 0 1-16 0z" fill="currentColor"/><path d="M4 3h6v4H4zM14 3h6v4h-6z" style="fill:#002855"/>`,
   },
   freeplay: {
