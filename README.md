@@ -108,7 +108,7 @@ never spent; gift points are a separate wallet for shops.
   250 × the multiplier (shown above it on the road), and **SNAPPY** pops up on screen with the points it paid. Like a coupon, its row's gift doesn't count as a route gift,
   so taking Snappy never breaks the chain. It never appears with a shop, delivery or roadworks. `POWERPUP_BONUS`
   sets the value.
-- **Giftasaurus.** Every 26–42 seconds at first, tightening to 16–28 by 10 minutes (first 30–45 seconds in, never with a shop, delivery, roadworks or the gift shower)
+- **Giftasaurus.** Every 26–42 seconds at first, tightening to 16–28 by 6 minutes (first 30–45 seconds in, never with a shop, delivery, roadworks or the gift shower)
   a blue-striped bobblehead T-rex stands on one verge. With its feet planted it tilts in and swings its big head over
   the outer lane on that side, clamps its jaws, pulls back and rests, about 4 seconds a cycle (`BITE_CYCLE`). The jaws
   only bite while they are down on a truck in that lane (about 0.6–2.5s of each cycle); they never reach the middle
@@ -116,7 +116,7 @@ never spent; gift points are a separate wallet for shops.
   between bites to keep the chain, or skip it and lose the chain. Each bite is timed so the gift can be reached either
   at the normal pace or, when your tank has enough nitro, only by boosting. Shields, Ghost Truck and Holiday Gift
   Shoppe work on it like any other hazard. Art is in `assets/giftasaurus-*.png`.
-- **Wrecking-ball crane.** Every 32–52 seconds at first, tightening to 20–34 by 10 minutes (first 40–60 seconds in, never with a
+- **Wrecking-ball crane.** Every 32–52 seconds at first, tightening to 20–34 by 6 minutes (first 40–60 seconds in, never with a
   shop, delivery, roadworks, coupon, Snappy, the gift shower or on the river crossing) an orange crawler crane stands on one
   verge with its boom reaching over the middle of the road. A wrecking ball hangs from the tip on a chain and rocks across all
   three lanes, from the centre of one edge lane to the centre of the other, once every 3.2 seconds (`CRANE_PERIOD`,
@@ -133,7 +133,7 @@ The road has two set pieces with their own hazards, instead of cones, barriers, 
 rule that the guaranteed route gift marks an open lane.
 
 **Tunnels** first appear about 3 minutes in (170–200 seconds) and come every 45–90 seconds after that, 10 seconds long
-at first and up to 18 by 10 minutes. A concrete portal in a hill leads into a dark tunnel with ceiling lamps and a bright
+at first and up to 18 by 6 minutes. A concrete portal in a hill leads into a dark tunnel with ceiling lamps and a bright
 exit. Inside, hazards fade out beyond about 1.5 seconds of travel, while gifts, bays and coupons glow and stay visible to
 about 2.6 seconds, so you can still read the route.
 - **Stalled cars** join the usual obstacles rather than replacing them: about 3 in 10 side-lane obstacles are stalled cars, the rest are the normal cones, barriers, drums and potholes. They are dark, but their hazard lights flash amber and show through
@@ -216,7 +216,7 @@ Run these in the Supabase SQL editor, in order. Both are safe to run again.
    Until it is run, scrolling works but searching shows "Couldn't load the leaderboard."
 
 `submit_score_v02` rejects profanity, and distances, gift counts, points, deliveries and scores that are
-impossible for the run's duration. The score ceiling is 8× the gift points earned, plus the pace trickle at ×8,
+impossible for the run's duration. The score ceiling is 8× the gift points earned, plus the pace trickle (`PACE_SCORE`, 1.25 points a second at the starting pace) at ×8,
 plus 800 for every delivery the clock allows; perfect-play bot runs reach 55–85% of it. If you change the scoring
 rules in the engine, change this ceiling in the same commit. Remove unwanted v0.2 entries in the Supabase table editor.
 
@@ -224,9 +224,10 @@ rules in the engine, change this ceiling in the same commit. Remove unwanted v0.
 
 During a run a score pill (with the multiplier and a bar showing progress to the next step) and a gift-points
 pill sit over the road, with short chips for active boosts and a delivery banner when one is on, plus pause
-and fullscreen in the header. On desktop the keys (← → steer, ↑ boost with a charge meter, P pause) are listed
-under the road. On touch screens that strip is hidden: swipe to steer and hold the round BOOST thumb button in the
-bottom corner, whose ring shows the charge. The volume panel has a Left / Right switch for the thumb button,
+and fullscreen in the header. A glass tube along the bottom of the road shows the boost charge on every device: its
+orange liquid drains as boost is spent and turns grey (RECHARGE) when it runs dry. On desktop the keys (← → steer,
+↑ boost, P pause, M mute, F fullscreen) are listed under the road. On touch screens that strip is hidden: swipe to
+steer and hold the round BOOST thumb button in the bottom corner, just above the tube. The volume panel has a Left / Right switch for the thumb button,
 remembered on the device. Best score and the leaderboard live on the start screen.
 
 ## Fullscreen
@@ -237,20 +238,20 @@ same button exits.
 
 ## Difficulty and fairness
 
-Speed increases continuously with active playing time: `107.5 + 300 × (1 − e^(−t/60)) + 0.75 × t` (`SPEED_START`, `SPEED_RISE`, `SPEED_CREEP`)
+Speed increases continuously with active playing time: `129 + 360 × (1 − e^(−t/60)) + 0.9 × t` (`SPEED_START`, `SPEED_RISE`, `SPEED_CREEP`)
 in game-world units, with no upper speed cap. The pace display starts at 1.0×,
 reaches approximately 3.2× after one minute, 5.9× after five and 8× after ten, and continues rising slowly. The camera
 widens its view gradually as speed rises so approaching obstacles remain readable.
 
 Patterns alternate between single obstacles, two-lane roadwork rows, slalom
 sequences, and clear gift-collection stretches. Clear stretches thin out from a 40% chance per pattern change
-to 5%, and single-obstacle rows increasingly block both side lanes (10% of them, rising to 70% at 10 minutes). Each row leaves a free lane;
-consecutive guaranteed routes usually move at most one lane. From 2 minutes in, an edge-lane
-route increasingly jumps straight to the opposite edge (up to a 3 in 10 chance per row by 10 minutes), so the
+to 5%, and single-obstacle rows increasingly block both side lanes (10% of them, rising to 70% at 6 minutes). Each row leaves a free lane;
+consecutive guaranteed routes usually move at most one lane. From 30 seconds in, an edge-lane
+route increasingly jumps straight to the opposite edge (up to a 3 in 10 chance per row by 6 minutes), so the
 truck has to cross the whole road. Gift boxes indicate that route. Changing one lane takes 0.16 seconds.
 
 **Roadworks** close lanes for a long stretch (4–7 seconds of driving), roughly every
-22–40 seconds after the previous one ends at first, tightening to 14–28 by 10 minutes (first from 30 seconds in). A closure shuts one edge lane, or, increasingly as the
+22–40 seconds after the previous one ends at first, tightening to 14–28 by 6 minutes (first from 30 seconds in). A closure shuts one edge lane, or, increasingly as the
 run goes on, two lanes leaving only an edge lane open. A striped barrier with a flashing
 chevron board marks the start, a warning sign stands on the verge, and cones line the
 dug-up surface. Steering into a closed lane at any point along it is a crash (a shield
@@ -261,10 +262,11 @@ closure keep their route in an open lane, rows where a closure starts, ends or f
 left clear, and shops, coupons and delivery requests wait until the road reopens.
 
 New rows spawn 4.8 seconds ahead using the future acceleration curve. Arrival
-spacing tightens from about 1.6 seconds down to 0.95 at five minutes and a 0.55 second floor from ten minutes on (`ROW_GAPS`), which leaves about 200ms for a two-lane jump, preserving time to
+spacing tightens from 1.2 seconds down to 0.6 at three minutes, 0.45 at five and a 0.32 second floor from seven minutes on (`ROW_GAPS`), which leaves about a 150ms window to start an edge-to-edge jump, preserving time to
 change lanes at higher speeds. Swept collision checks examine both the road
 position and lane-change path across each frame, so faster objects cannot skip
-through the collision area. Boosts are optional; safe routes do not require them.
+through the collision area. Plain obstacles also stay in the collision area for at least 26ms (`MIN_HIT_SECONDS`), so at top
+speed a lane change cannot slip through the gap between two neighbouring blocked lanes. Boosts are optional; safe routes do not require them.
 Distance and pace are arcade measures, not a realistic driving simulation.
 
 ## Rendering and lifecycle

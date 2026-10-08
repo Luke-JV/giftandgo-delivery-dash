@@ -38,6 +38,10 @@
         <span class="dash-pill"><span data-score>0</span><small>pts</small><span class="dash-mult" data-multiplier>×1</span></span>
         <span class="dash-chain" aria-hidden="true"><span data-chain-fill></span></span>
       </span>
+      <span class="dash-pill dash-timer" aria-label="Run time">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 6v3.5l2 1.5M6 1.5h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span data-timer>0:00</span>
+      </span>
       <span class="dash-pill dash-pill-points" aria-label="Gift points to spend at shops">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6h12v3H2zM3 9h10v5H3zM7 6h2v8H7z" fill="currentColor"/><path d="M8 6C6 2 3 3 4 6M8 6c2-4 5-3 4 0" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
         <span data-points>0</span>
@@ -64,6 +68,10 @@
         <svg class="dash-swipe-chevron dash-swipe-chevron-right" viewBox="0 0 16 12" width="20" height="15"><path d="M2 1l5 5-5 5M9 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <span class="dash-swipe-label">SWIPE TO STEER</span>
+    </div>
+    <div class="dash-tube" aria-hidden="true">
+      <span class="dash-tube-liquid"></span>
+      <span class="dash-tube-label" data-tube-label>BOOST</span>
     </div>
     <button class="dash-boost" type="button" data-action="boost" aria-label="Boost. Hold to go faster" disabled>
       <span class="dash-boost-label" data-boost-label>BOOST</span>
@@ -105,8 +113,10 @@
   </div>
   <footer class="dash-controls" aria-label="Keyboard controls">
     <span class="dash-key-group"><kbd>←</kbd><kbd>→</kbd><span>Steer</span></span>
-    <span class="dash-key-group"><kbd>↑</kbd><span>Boost</span><span class="dash-boost-meter" data-boost-meter aria-hidden="true"><span></span></span></span>
+    <span class="dash-key-group"><kbd>↑</kbd><span>Boost</span></span>
     <span class="dash-key-group"><kbd>P</kbd><span>Pause</span></span>
+    <span class="dash-key-group"><kbd>M</kbd><span>Mute</span></span>
+    <span class="dash-key-group"><kbd>F</kbd><span>Fullscreen</span></span>
   </footer>
   <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>
 </section>
@@ -143,6 +153,9 @@
 .dash-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px; background: #002855D9; color: #FFF; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .dash-pill small { font-size: 11px; font-weight: 600; color: #AEC3DC; }
 .dash-pill-points { color: #FFC35B; align-self: flex-start; }
+/* Centred on the scene rather than between the side pills, which differ in width. */
+.dash-timer { position: absolute; top: 0; left: 50%; transform: translateX(-50%); padding: 5px 10px; font-size: 14px; }
+.dash-timer svg { color: #AEC3DC; }
 .dash-score { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .dash-mult { margin-left: 2px; color: #FFC35B; font-size: 14px; font-weight: 800; transition: color 0.2s, text-shadow 0.2s; }
 .dash-mult:is([data-tier="2"], [data-tier="3"]) { color: #FFB21E; text-shadow: 0 0 6px #ED8B00; }
@@ -174,7 +187,8 @@
 .dash-delivery[data-urgent="true"] .dash-delivery-bar span { background: #FF6A4D; }
 .dash-perks { position: absolute; top: 52px; left: 10px; display: flex; flex-wrap: wrap; gap: 4px; max-width: 70%; pointer-events: none; }
 .dash-perks span { padding: 3px 8px; border-radius: 999px; background: #002855D9; color: #FFCF80; font-size: 11px; font-weight: 650; }
-.dash-toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: #ED8B00; color: #0A1D40; font-weight: 750; font-size: 12px; white-space: nowrap; pointer-events: none; }
+/* Below the timer, perk chips and crosswind bar so it never hides them. */
+.dash-toast { position: absolute; top: 122px; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: #ED8B00; color: #0A1D40; font-weight: 750; font-size: 12px; white-space: nowrap; pointer-events: none; }
 .dash-snappy { position: absolute; top: 34%; left: 50%; display: flex; flex-direction: column; align-items: center; gap: 4px; transform: translate(-50%, -50%) rotate(-7deg); color: #FFF; font-style: italic; line-height: 1; pointer-events: none; animation: dash-snappy-pop 1.3s ease-out forwards; }
 .dash-snappy-word { font-size: 42px; font-weight: 900; letter-spacing: 1px; text-decoration: line-through; text-decoration-color: #ED8B00; text-decoration-thickness: 6px; text-shadow: 0 3px 0 #002855, 0 0 12px #3C9FE4; }
 .dash-snappy-points { font-size: 30px; font-weight: 900; color: #FFE08A; text-shadow: 0 3px 0 #002855, 0 0 10px #ED8B00; }
@@ -279,23 +293,36 @@
 .delivery-dash[data-board-open="true"] .dash-scene { min-height: 540px; }
 
 /* Desktop lists the keys under the road; touch hides the strip and steers with swipes plus the thumb button. */
-.dash-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 18px; padding: 10px 12px 12px; color: #AEC3DC; font-size: 12px; font-weight: 650; }
+.dash-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; padding: 10px 12px 12px; color: #AEC3DC; font-size: 12px; font-weight: 650; }
 .dash-key-group { display: inline-flex; align-items: center; gap: 4px; }
 .dash-key-group span { margin-left: 2px; }
 .dash-controls kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border: 1px solid #2F5683; border-bottom-width: 2px; border-radius: 5px; background: #123C68; color: #FFF; font: inherit; font-size: 11px; font-weight: 800; }
-.dash-boost-meter { display: inline-block; width: 46px; height: 6px; margin-left: 6px !important; overflow: hidden; border-radius: 3px; background: #FFFFFF26; }
-.dash-boost-meter span { display: block; width: var(--boost-fill, 100%); height: 100%; margin: 0 !important; background: linear-gradient(90deg, #ED8B00, #FFC35B); transition: width 0.1s linear; }
-.delivery-dash[data-boost-locked="true"] .dash-boost-meter span { background: #6B7C93; }
 .dash-touch .dash-controls { display: none; }
 
-/* A round thumb button in the bottom corner; its ring empties as boost is spent. */
-.dash-boost { --ring: #FFC35B; position: absolute; bottom: 14px; right: 14px; display: none; place-items: center; width: 78px; height: 78px; padding: 0; border: 0; border-radius: 50%; background: conic-gradient(var(--ring) var(--boost-fill, 100%), #FFFFFF2E 0); color: #FFF; font-weight: 800 !important; font-size: 12px !important; letter-spacing: 1.5px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-shadow: 0 3px 10px #0008; transition: transform 0.08s; }
+/* A round thumb button in the bottom corner, just above the boost tube. */
+.dash-boost { --ring: #FFC35B; position: absolute; bottom: 44px; right: 14px; display: none; place-items: center; width: 78px; height: 78px; padding: 0; border: 0; border-radius: 50%; background: var(--ring); color: #FFF; font-weight: 800 !important; font-size: 12px !important; letter-spacing: 1.5px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-shadow: 0 3px 10px #0008; transition: transform 0.08s; }
 .dash-touch[data-state="running"] .dash-boost { display: grid; }
 .delivery-dash[data-thumb="left"] .dash-boost { right: auto; left: 14px; }
 .dash-boost-label { display: grid; place-items: center; width: calc(100% - 10px); height: calc(100% - 10px); border-radius: 50%; background: #123C68E6; text-shadow: 0 1px 2px #00285599; }
 .dash-boost[data-active="true"] { transform: scale(0.94); box-shadow: 0 0 0 3px #FFC35B88, 0 0 18px #ED8B00; }
 .dash-boost[data-locked="true"] { --ring: #6B7C93; font-size: 9px !important; letter-spacing: 0.5px; }
 .dash-boost:disabled { opacity: 0.45; }
+
+/* The boost tube along the bottom of the road: orange liquid drains toward the left as boost is spent, its edge sloshing. */
+.dash-tube { position: absolute; left: 50%; bottom: 10px; display: none; width: min(calc(100% - 24px), 420px); height: 24px; overflow: hidden; transform: translateX(-50%); border: 2px solid #002855; border-radius: 999px; background: linear-gradient(#F4F8FCE6, #C9D6E6E6); box-shadow: inset 0 3px 5px #00285566, 0 2px 8px #0007; pointer-events: none; }
+.delivery-dash:is([data-state="running"], [data-state="paused"]) .dash-tube { display: block; }
+.dash-tube-liquid { --liquid: linear-gradient(#FFD37A, #ED8B00 55%, #C26A00); position: absolute; top: 0; bottom: 0; left: 0; width: var(--boost-fill, 100%); background: var(--liquid); transition: width 0.1s linear; }
+.dash-tube-liquid::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 70%, #FFF7 0 1.5px, transparent 2px) 0 0 / 23px 20px, radial-gradient(circle at 70% 40%, #FFF5 0 1px, transparent 1.5px) 0 0 / 37px 20px; animation: dash-tube-bubbles 1.6s linear infinite; }
+.dash-tube-liquid::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: 6px; background: var(--liquid); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H2Q6 2.5 2 5Q-2 7.5 2 10H0Z'/%3E%3C/svg%3E") 0 0 / 6px 10px repeat-y; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H2Q6 2.5 2 5Q-2 7.5 2 10H0Z'/%3E%3C/svg%3E") 0 0 / 6px 10px repeat-y; animation: dash-tube-slosh 0.7s linear infinite; }
+.dash-tube::after { content: ""; position: absolute; top: 3px; left: 10px; right: 10px; height: 4px; border-radius: 2px; background: #FFFFFF8C; }
+.dash-tube-label { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; color: #002855; font-size: 12px; font-weight: 900; letter-spacing: 4px; text-indent: 4px; line-height: 1; text-shadow: 0 1px 0 #FFFFFF80; }
+.delivery-dash[data-boost-active="true"] .dash-tube { box-shadow: inset 0 3px 5px #00285566, 0 0 0 2px #FFC35B88, 0 0 14px #ED8B00; }
+.delivery-dash[data-boost-active="true"] .dash-tube-liquid::after { animation-duration: 0.35s; }
+.delivery-dash[data-boost-locked="true"] .dash-tube-liquid { --liquid: linear-gradient(#B7C3D2, #8796AA 55%, #6B7C93); }
+.delivery-dash[data-boost-locked="true"] .dash-tube-label { font-size: 11px; letter-spacing: 2px; text-indent: 2px; }
+@keyframes dash-tube-bubbles { to { background-position: -23px -20px, -37px -20px; } }
+@keyframes dash-tube-slosh { to { -webkit-mask-position: 0 10px; mask-position: 0 10px; } }
+@media (prefers-reduced-motion: reduce) { .dash-tube-liquid::before, .dash-tube-liquid::after { animation: none; } }
 .dash-thumb-setting { display: none; }
 .dash-touch .dash-thumb-setting { display: block; }
 .dash-touch .dash-thumb-toggle { grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; border-radius: 7px; border: 1px solid #2F5683; }
@@ -452,24 +479,25 @@ const SLOT_REEL_STOPS = [0.9, 1.25, 1.6];
 const SLOT_MIN_GAP = 30;
 const SHIELD_LIMIT = 1;
 /**
- * Speed in world units per second after t seconds driven: it climbs quickly to about 3× the starting pace in the
+ * Speed in world units per second after t seconds driven: it climbs quickly to about 3.2× the starting pace in the
  * first minute, then creeps up for the rest of the run with no ceiling. Rows are spaced in seconds, so speed
  * sets how the game looks and scores; how hard it is to react comes from ROW_GAPS and DIFFICULTY_FROM below.
  */
-const SPEED_START = 107.5;
-const SPEED_RISE = 300;
+const SPEED_START = 129;
+const SPEED_RISE = 360;
 const SPEED_RISE_SECONDS = 60;
-const SPEED_CREEP = 0.75;
+const SPEED_CREEP = 0.9;
 const speedAt = (seconds) => SPEED_START + SPEED_RISE * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS)) + SPEED_CREEP * seconds;
 /** Distance covered in `seconds` of driving: the integral of `speedAt`. */
 const distanceAt = (seconds) => SPEED_START * seconds + SPEED_RISE * (seconds - SPEED_RISE_SECONDS * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS))) + SPEED_CREEP / 2 * seconds * seconds;
 /**
  * Seconds between rows at the given time into the run, linearly between these points and flat after the last.
- * Easy to react to for the first 5 minutes, actively hard from 5 to 10, and from 10 minutes on it stays at 0.55s: a
- * two-lane jump takes 0.32s to cross, so that leaves about 200ms to spot it and press, which is already a very good
+ * Comfortable for the first minute, steadily harder to 5 minutes, and from 7 minutes on it stays at 0.32s. Rows are
+ * visible seconds ahead, so the limit is timing, not spotting: an edge-to-edge jump between two blocked rows then has
+ * about a 150ms window to start in (it needs 1.43 lanes, 0.23s, to clear the middle lane's hitbox), an expert
  * player's margin with nothing left over for fatigue or a slip.
  */
-const ROW_GAPS = [[0, 1.6], [60, 1.4], [150, 1.2], [300, 0.95], [600, 0.55]];
+const ROW_GAPS = [[0, 1.2], [30, 1.0], [90, 0.8], [180, 0.6], [300, 0.45], [420, 0.32]];
 const rowGapAt = (seconds) => {
     const next = ROW_GAPS.findIndex(([time]) => time > seconds);
     if (next === -1)
@@ -478,8 +506,8 @@ const rowGapAt = (seconds) => {
     return fromGap + (toGap - fromGap) * (seconds - fromTime) / (toTime - fromTime);
 };
 /** Seconds into the run when each tuning ramp below reaches its full value; before that it eases in from its starting value. */
-const DIFFICULTY_FROM = 120;
-const DIFFICULTY_FULL = 600;
+const DIFFICULTY_FROM = 30;
+const DIFFICULTY_FULL = 360;
 /** 0 until DIFFICULTY_FROM, then rising to 1 at DIFFICULTY_FULL; scales how often the harder patterns and traps appear. */
 const difficultyAt = (seconds) => Math.max(0, Math.min(1, (seconds - DIFFICULTY_FROM) / (DIFFICULTY_FULL - DIFFICULTY_FROM)));
 const blend = (easy, hard, seconds) => easy + (hard - easy) * difficultyAt(seconds);
@@ -535,6 +563,14 @@ const BITE_REACH = 0.6;
 /** Half the truck's width, in lanes, and how far past its near side the jaws must reach to bite (the head is then down on the roof). */
 const TRUCK_HALF_WIDTH = 0.32;
 const BITE_OVERLAP = 0.2;
+/**
+ * A plain obstacle stays in the hit zone for at least this long. Hitboxes leave a 0.14-lane gap between neighbouring
+ * lanes, and above about 890 units/s a row would otherwise pass in under the 22ms the truck takes to cross that gap,
+ * letting a lane change slip between two blocked lanes.
+ */
+const MIN_HIT_SECONDS = 0.026;
+/** Pace trickle points per second at the starting pace, before the chain multiplier. */
+const PACE_SCORE = 1.25;
 /**
  * A rare silver Ferrari comes down the road toward the truck, FERRARI_PACE times the road's own speed again, changing lane
  * three times on the way. It always ends in a lane other than the route lane (where the route gift sits), and the last
@@ -645,7 +681,7 @@ class DeliveryDashEngine {
         this.boostLevel = 0;
         this.boostLocked = false;
     }
-    // Continuous time-based acceleration: 107.5 at the start, about 340 after one minute, 630 after five, 860 after ten.
+    // Continuous time-based acceleration: 129 at the start, about 410 after one minute, 755 after five, 1030 after ten.
     // No speed ceiling; pause time does not count toward difficulty.
     get speed() { return speedAt(this.elapsed); }
     static { this.BOOST_FACTOR = 1.6; }
@@ -877,17 +913,19 @@ class DeliveryDashEngine {
         if (reward === 'jackpot')
             this.jackpotUntil = Math.max(this.elapsed, this.jackpotUntil) + 10;
         if (reward === 'rain') {
-            // Every hazard still ahead becomes a gift, and new rows are all gifts for a few seconds.
+            // Every hazard still ahead becomes a gift, and new rows are all gifts for a few seconds. Each can roll a colour like a route gift.
             for (const e of this.entities)
-                if (e.z >= 48 && isHazard(e.kind))
+                if (e.z >= 48 && isHazard(e.kind)) {
                     e.kind = 'gift';
+                    e.variant = this.rollGiftVariant();
+                }
             this.entities = this.entities.filter(e => (e.kind !== 'crane' && e.kind !== 'ferrari') || e.z < 48);
             // Closures still ahead are cleared into a trail of gifts along the lane.
             const works = this.entities.filter(e => e.kind === 'roadworks' && e.z >= 48);
             this.entities = this.entities.filter(e => !works.includes(e));
             for (const e of works)
                 for (let z = e.z; z <= e.z + (e.length ?? 0); z += 70) {
-                    this.entities.push({ id: this.nextId++, row: e.row, lane: e.lane, z, kind: 'gift', handled: false });
+                    this.entities.push({ id: this.nextId++, row: e.row, lane: e.lane, z, kind: 'gift', handled: false, variant: this.rollGiftVariant() });
                 }
             this.rainUntil = Math.max(this.elapsed, this.rainUntil) + 4;
             this.sweepAt = this.elapsed;
@@ -917,13 +955,14 @@ class DeliveryDashEngine {
             // An oncoming car closes on the truck by its own speed as well as the road's.
             const moved = e.kind === 'ferrari' ? travel + this.speed * FERRARI_PACE * dt : travel;
             e.z -= moved;
-            if (e.handled || e.kind === 'gantry' || e.z > 68 || previousZ + length < 48)
+            const tail = isHazard(e.kind) && e.kind !== 'giftasaurus' ? Math.min(48, 68 - travel / dt * MIN_HIT_SECONDS) : 48;
+            if (e.handled || e.kind === 'gantry' || e.z > 68 || previousZ + length < tail)
                 continue;
             // Swept overlap catches an obstacle even when one fast frame crosses the
             // entire collision zone, and uses the truck's actual lane-change path.
             // A roadworks closure overlaps for its whole length, so steering into it crashes.
             const enter = Math.max(0, (previousZ - 68) / moved);
-            const leave = Math.min(1, (previousZ + length - 48) / moved);
+            const leave = Math.min(1, (previousZ + length - tail) / moved);
             const laneAt = (fraction) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
             const a = laneAt(enter), b = laneAt(leave);
             // The Dustbuster reaches gifts one lane either side of the truck.
@@ -1000,13 +1039,13 @@ class DeliveryDashEngine {
         this.updateTunnel();
         this.updateGust(dt);
         // Score trickles in with pace (not boost), so distance matters but never dominates.
-        this.score += this.speed / SPEED_START * dt * this.multiplier;
+        this.score += PACE_SCORE * this.speed / SPEED_START * dt * this.multiplier;
         this.updateDelivery();
         this.updateFerrari();
         this.spawnIn -= dt;
         if (this.spawnIn <= 0) {
             // Spawn 4.8 seconds ahead, accounting for future acceleration. Density
-            // increases, but adjacent rows keep at least 0.8 seconds of reaction time.
+            // increases, but adjacent rows keep at least 0.47 seconds apart (ROW_GAPS).
             this.spawnRow(68 + this.travelAfter(BAY_LEAD_SECONDS));
             this.spawnIn += rowGapAt(this.elapsed);
         }
@@ -1439,7 +1478,7 @@ class DeliveryDashEngine {
             const zoneKinds = zone === 'tunnel' ? ['stalledcar'] : zone === 'bridge' ? ['birds', 'puddle'] : [];
             const kinds = zoneKinds.length && this.random() < ZONE_HAZARD_CHANCE ? zoneKinds : plainKinds;
             const kind = kinds[Math.floor(this.random() * kinds.length)];
-            this.entities.push({ id: this.nextId++, row: this.row, lane, z, kind: raining ? 'gift' : kind, handled: false });
+            this.entities.push({ id: this.nextId++, row: this.row, lane, z, kind: raining ? 'gift' : kind, handled: false, variant: raining ? this.rollGiftVariant() : undefined });
         }
         if (shopRow)
             this.entities.push({ id: this.nextId++, row: this.row, lane: shopLane, z, kind: 'shop', handled: false });
@@ -1765,6 +1804,13 @@ class DeliveryDashSfx {
                 this.horn(t, 0.16, 1);
                 this.horn(t + 0.24, 0.22, 0.93);
                 break;
+            // Snappy gets run over: a rubber-toy squeak up, then a stepped 8-bit tumble down to a final deflating squeak.
+            case 'snappyDeath':
+                this.tone('square', 1400, 2600, t, 0.06, 0.2);
+                this.tone('square', 1600, 3000, t + 0.07, 0.07, 0.2);
+                [1760, 1480, 1245, 1047, 880, 740].forEach((f, i) => this.tone('square', f * 1.06, f, t + 0.16 + i * 0.05, 0.05, 0.16));
+                this.tone('square', 1200, 300, t + 0.47, 0.22, 0.18);
+                break;
         }
     }
     /** Keeps the Ferrari's engine note in step with the car; null fades it out (gone, paused or crashed). Call every frame. */
@@ -1935,6 +1981,8 @@ const GLOW_SIGHT_SECONDS = 2.6;
 const GANTRY_SIGHT_SECONDS = 3.8;
 const GANTRY_HEIGHT = 92;
 const WINDSOCK_SIGHT_SECONDS = 6;
+/** How far down the scene, in screen pixels, the crosswind bar is drawn so the HUD never covers it. */
+const GUST_BAR_TOP_PX = 100;
 const GUST_WARNING_SECONDS = 3;
 /** Crane sprite pixels: the cable stub the chain hangs from, drawn CRANE_UNIT world units to a pixel so it sits over the middle of the road. The ball sprite has a chain link on top and its centre at CRANE_BALL_CENTRE. */
 const CRANE_PIVOT = { x: 250, y: 35 };
@@ -2012,6 +2060,7 @@ class DeliveryDashGame {
         this.historyEntry = false;
         this.swipeHintUntil = 0;
         this.touchInput = false;
+        this.unmuteLevels = null;
         this.swipesLearned = 0;
         this.swipeKey = 'giftgo-delivery-dash-swipes-learned';
         this.thumbKey = 'giftgo-delivery-dash-thumb';
@@ -2136,16 +2185,7 @@ class DeliveryDashGame {
             this.afterRedeem();
             this.find('[data-action="pause"]').focus({ preventScroll: true });
         });
-        listen(this.find('[data-action="leave-shop"]'), 'click', () => {
-            this.engine.leaveShop();
-            this.shopNote = '';
-            this.syncEventMarkers();
-            this.lastTime = 0;
-            this.syncUI();
-            this.find('[data-action="pause"]').focus({ preventScroll: true });
-            this.draw();
-            this.schedule();
-        });
+        listen(this.find('[data-action="leave-shop"]'), 'click', () => this.leaveShop());
         listen(root, 'keydown', event => this.key(event));
         listen(root, 'keyup', event => { if (['ArrowUp', 'w', 'W'].includes(event.key))
             this.engine.setBoost(false); });
@@ -2279,15 +2319,33 @@ class DeliveryDashGame {
         this.draw();
         this.schedule();
     }
+    leaveShop(toast) {
+        this.engine.leaveShop();
+        this.shopNote = '';
+        this.syncEventMarkers();
+        this.lastTime = 0;
+        if (toast)
+            this.showToast(toast);
+        this.syncUI();
+        this.find('[data-action="pause"]').focus({ preventScroll: true });
+        this.draw();
+        this.schedule();
+    }
     buy(item) {
         const cashed = this.engine.freeplayValue;
         if (!this.engine.buy(item))
             return;
-        this.shopNote = item === 'freeplay' ? `+${cashed} score!` : REWARD_CATALOG[item].toast;
+        // Freeplay cashes in every gift point, so there is nothing left to spend: drive straight back out.
+        if (item === 'freeplay') {
+            this.leaveShop(`+${cashed} score!`);
+            return;
+        }
+        this.shopNote = REWARD_CATALOG[item].toast;
         this.afterRedeem();
         const focused = this.root.ownerDocument.activeElement;
         if (!(focused instanceof this.win.HTMLButtonElement) || focused.disabled) {
-            (this.root.querySelector('[data-reward]:not(:disabled)') ?? this.find('[data-action="leave-shop"]')).focus({ preventScroll: true });
+            (this.root.querySelector(`[data-reward="${item}"]:not(:disabled)`)
+                ?? this.root.querySelector('[data-reward]:not(:disabled)') ?? this.find('[data-action="leave-shop"]')).focus({ preventScroll: true });
         }
     }
     toggleFullscreen() {
@@ -2355,6 +2413,8 @@ class DeliveryDashGame {
         const target = e.target;
         if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA')
             return;
+        if ((this.engine.state === 'shop' || this.engine.state === 'reward') && this.menuKey(e))
+            return;
         if (['ArrowUp', 'w', 'W'].includes(e.key)) {
             e.preventDefault();
             this.engine.setBoost(true);
@@ -2370,6 +2430,56 @@ class DeliveryDashGame {
             if (!e.repeat)
                 this.togglePause();
         }
+        else if (['m', 'M'].includes(e.key)) {
+            e.preventDefault();
+            if (!e.repeat)
+                this.toggleMute();
+        }
+        else if (['f', 'F'].includes(e.key)) {
+            e.preventDefault();
+            if (!e.repeat)
+                this.toggleFullscreen();
+        }
+    }
+    /**
+     * Shop and coupon menus: WASD or the arrows move between the buttons you can press (wrapping round,
+     * and including Back on the road), and Space presses the highlighted one. Returns false for other keys.
+     */
+    menuKey(e) {
+        const back = ['ArrowUp', 'ArrowLeft', 'w', 'W', 'a', 'A'].includes(e.key);
+        const next = ['ArrowDown', 'ArrowRight', 's', 'S', 'd', 'D'].includes(e.key);
+        if (!back && !next && e.key !== ' ')
+            return false;
+        e.preventDefault();
+        const buttons = [...this.root.querySelectorAll('[data-reward]:not(:disabled), [data-action="leave-shop"]:not([hidden])')];
+        if (!buttons.length)
+            return true;
+        const index = buttons.indexOf(this.root.ownerDocument.activeElement);
+        if (e.key === ' ') {
+            if (!e.repeat)
+                (buttons[index] ?? buttons[0]).click();
+        }
+        else {
+            const step = back ? -1 : 1;
+            buttons[index < 0 ? (back ? buttons.length - 1 : 0) : (index + step + buttons.length) % buttons.length].focus({ preventScroll: true });
+        }
+        return true;
+    }
+    /** Silences music and effects together, restoring the levels they had (or the defaults) on the next press. */
+    toggleMute() {
+        this.music.unlock();
+        this.sfx.unlock();
+        if (this.music.volume || this.sfx.volume) {
+            this.unmuteLevels = [this.music.volume, this.sfx.volume];
+            this.music.setVolume(0);
+            this.sfx.setVolume(0);
+        }
+        else {
+            const [music, sfx] = this.unmuteLevels ?? [DEFAULT_VOLUME, DEFAULT_SFX_VOLUME];
+            this.music.setVolume(music);
+            this.sfx.setVolume(sfx);
+        }
+        this.syncVolume();
     }
     /** Which corner the touch boost button sits in, for left- or right-thumbed players. */
     setThumb(side) {
@@ -2435,7 +2545,7 @@ class DeliveryDashGame {
     /** What the engine last did, taken before an update so `playSounds` can tell what happened during it. */
     soundMarks() {
         const e = this.engine;
-        return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields };
+        return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields, powerpup: e.lastPowerpupAt };
     }
     /** One sound per update, the most important event winning: a shield hit also breaks the streak, a coupon pauses the run. */
     playSounds(before) {
@@ -2446,6 +2556,8 @@ class DeliveryDashGame {
             this.sfx.play('coupon');
         else if (e.shields < before.shields)
             this.sfx.play('shieldHit');
+        else if (e.lastPowerpupAt > before.powerpup)
+            this.sfx.play('snappyDeath');
         else if (delivery && delivery.at > before.delivery)
             this.sfx.play(delivery.success ? 'delivered' : 'setback');
         else if ((e.lastChainBreak?.at ?? -100) > before.chainBreak)
@@ -2559,7 +2671,7 @@ class DeliveryDashGame {
                 this.shopNote = '';
                 this.syncUI();
                 this.find('[data-live-status]').textContent = 'Roadside shop. Spend gift points on upgrades for the rest of the run. The game is paused while you shop.';
-                this.root.querySelector('[data-reward]:not(:disabled)')?.focus({ preventScroll: true });
+                (this.root.querySelector('[data-reward]:not(:disabled)') ?? this.find('[data-action="leave-shop"]')).focus({ preventScroll: true });
             }
             else if (this.engine.state === 'reward') {
                 this.syncUI();
@@ -2598,6 +2710,8 @@ class DeliveryDashGame {
         const progress = engine.chainProgress;
         this.find('[data-chain-fill]').style.width = `${progress ? Math.round(progress.have / progress.need * 100) : 100}%`;
         this.find('[data-points]').textContent = String(engine.giftPoints);
+        const seconds = Math.floor(engine.elapsed);
+        this.find('[data-timer]').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
         this.renderDelivery();
         this.find('[data-overlay]').hidden = state === 'running';
         this.find('[data-main-card]').hidden = boardVisible;
@@ -2634,7 +2748,10 @@ class DeliveryDashGame {
         boost.dataset['locked'] = String(engine.boostLockedOut);
         this.root.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
         this.root.dataset['boostLocked'] = String(engine.boostLockedOut);
-        this.find('[data-boost-label]').textContent = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
+        this.root.dataset['boostActive'] = String(engine.boostLevel > 0.3);
+        const boostLabel = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
+        this.find('[data-boost-label]').textContent = boostLabel;
+        this.find('[data-tube-label]').textContent = boostLabel;
         const remaining = (until) => Math.ceil(until - engine.elapsed);
         const perks = [];
         if (engine.shields)
@@ -3780,7 +3897,9 @@ class DeliveryDashGame {
         const state = this.gustState(), gust = this.engine.gust;
         if (!state || !gust)
             return;
-        const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, y = 24, height = 7;
+        // Sits a fixed distance down the screen, below the HUD pills, toast and delivery banner, however much the canvas is scaled.
+        const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, height = 7;
+        const y = Math.round(GUST_BAR_TOP_PX / Math.max(1, this.displayScale));
         const peak = gust.swappedAt !== null && this.engine.elapsed - gust.swappedAt < 0.3;
         c.globalAlpha = 0.8;
         this.rect('#0B1B33', centre - half - 2, y - 2, half * 2 + 4, height + 4);

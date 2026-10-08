@@ -1,8 +1,8 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
 import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
-import { DEFAULT_MUSIC_BASE, DeliveryDashMusic } from './delivery-dash.music';
-import { DEFAULT_SFX_BASE, DeliveryDashSfx } from './delivery-dash.sfx';
+import { DEFAULT_MUSIC_BASE, DEFAULT_VOLUME, DeliveryDashMusic } from './delivery-dash.music';
+import { DEFAULT_SFX_BASE, DEFAULT_SFX_VOLUME, DeliveryDashSfx } from './delivery-dash.sfx';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -40,6 +40,8 @@ const GLOW_SIGHT_SECONDS = 2.6;
 const GANTRY_SIGHT_SECONDS = 3.8;
 const GANTRY_HEIGHT = 92;
 const WINDSOCK_SIGHT_SECONDS = 6;
+/** How far down the scene, in screen pixels, the crosswind bar is drawn so the HUD never covers it. */
+const GUST_BAR_TOP_PX = 100;
 const GUST_WARNING_SECONDS = 3;
 interface SpriteBox { image: HTMLImageElement; x: number; y: number; w: number; h: number; scale: number; baseX: number; baseY: number; }
 interface RoadObject { z: number; over: boolean; draw: () => void; hazard?: boolean; glowLateral?: number; sight?: number; emit?: () => void; }
@@ -123,6 +125,7 @@ export class DeliveryDashGame {
   private historyEntry = false;
   private swipeHintUntil = 0;
   private touchInput = false;
+  private unmuteLevels: [number, number] | null = null;
   private swipesLearned = 0;
   private swipeKey = 'giftgo-delivery-dash-swipes-learned';
   private thumbKey = 'giftgo-delivery-dash-thumb';
@@ -219,12 +222,7 @@ export class DeliveryDashGame {
       this.afterRedeem();
       this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
     });
-    listen(this.find('[data-action="leave-shop"]'), 'click', () => {
-      this.engine.leaveShop(); this.shopNote = '';
-      this.syncEventMarkers(); this.lastTime = 0;
-      this.syncUI(); this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
-      this.draw(); this.schedule();
-    });
+    listen(this.find('[data-action="leave-shop"]'), 'click', () => this.leaveShop());
     listen(root, 'keydown', event => this.key(event as KeyboardEvent));
     listen(root, 'keyup', event => { if (['ArrowUp', 'w', 'W'].includes((event as KeyboardEvent).key)) this.engine.setBoost(false); });
     listen(win, 'blur', () => this.engine.setBoost(false));
@@ -329,14 +327,25 @@ export class DeliveryDashGame {
     this.syncUI(); this.draw(); this.schedule();
   }
 
+  private leaveShop(toast?: string): void {
+    this.engine.leaveShop(); this.shopNote = '';
+    this.syncEventMarkers(); this.lastTime = 0;
+    if (toast) this.showToast(toast);
+    this.syncUI(); this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
+    this.draw(); this.schedule();
+  }
+
   private buy(item: ShopItem): void {
     const cashed = this.engine.freeplayValue;
     if (!this.engine.buy(item)) return;
-    this.shopNote = item === 'freeplay' ? `+${cashed} score!` : REWARD_CATALOG[item].toast;
+    // Freeplay cashes in every gift point, so there is nothing left to spend: drive straight back out.
+    if (item === 'freeplay') { this.leaveShop(`+${cashed} score!`); return; }
+    this.shopNote = REWARD_CATALOG[item].toast;
     this.afterRedeem();
     const focused = this.root.ownerDocument.activeElement;
     if (!(focused instanceof this.win.HTMLButtonElement) || focused.disabled) {
-      (this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
+      (this.root.querySelector<HTMLButtonElement>(`[data-reward="${item}"]:not(:disabled)`)
+        ?? this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
     }
   }
 
@@ -392,13 +401,52 @@ export class DeliveryDashGame {
     }
     const target = e.target as HTMLElement | null;
     if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+    if ((this.engine.state === 'shop' || this.engine.state === 'reward') && this.menuKey(e)) return;
     if (['ArrowUp', 'w', 'W'].includes(e.key)) { e.preventDefault(); this.engine.setBoost(true); return; }
     if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
       e.preventDefault();
       if (!e.repeat) this.engine.steer(['ArrowLeft', 'a', 'A'].includes(e.key) ? -1 : 1);
     } else if (['p', 'P', 'Escape'].includes(e.key)) {
       e.preventDefault(); if (!e.repeat) this.togglePause();
+    } else if (['m', 'M'].includes(e.key)) {
+      e.preventDefault(); if (!e.repeat) this.toggleMute();
+    } else if (['f', 'F'].includes(e.key)) {
+      e.preventDefault(); if (!e.repeat) this.toggleFullscreen();
     }
+  }
+
+  /**
+   * Shop and coupon menus: WASD or the arrows move between the buttons you can press (wrapping round,
+   * and including Back on the road), and Space presses the highlighted one. Returns false for other keys.
+   */
+  private menuKey(e: KeyboardEvent): boolean {
+    const back = ['ArrowUp', 'ArrowLeft', 'w', 'W', 'a', 'A'].includes(e.key);
+    const next = ['ArrowDown', 'ArrowRight', 's', 'S', 'd', 'D'].includes(e.key);
+    if (!back && !next && e.key !== ' ') return false;
+    e.preventDefault();
+    const buttons = [...this.root.querySelectorAll<HTMLButtonElement>('[data-reward]:not(:disabled), [data-action="leave-shop"]:not([hidden])')];
+    if (!buttons.length) return true;
+    const index = buttons.indexOf(this.root.ownerDocument.activeElement as HTMLButtonElement);
+    if (e.key === ' ') {
+      if (!e.repeat) (buttons[index] ?? buttons[0]).click();
+    } else {
+      const step = back ? -1 : 1;
+      buttons[index < 0 ? (back ? buttons.length - 1 : 0) : (index + step + buttons.length) % buttons.length].focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  /** Silences music and effects together, restoring the levels they had (or the defaults) on the next press. */
+  private toggleMute(): void {
+    this.music.unlock(); this.sfx.unlock();
+    if (this.music.volume || this.sfx.volume) {
+      this.unmuteLevels = [this.music.volume, this.sfx.volume];
+      this.music.setVolume(0); this.sfx.setVolume(0);
+    } else {
+      const [music, sfx] = this.unmuteLevels ?? [DEFAULT_VOLUME, DEFAULT_SFX_VOLUME];
+      this.music.setVolume(music); this.sfx.setVolume(sfx);
+    }
+    this.syncVolume();
   }
 
   /** Which corner the touch boost button sits in, for left- or right-thumbed players. */
@@ -452,7 +500,7 @@ export class DeliveryDashGame {
   /** What the engine last did, taken before an update so `playSounds` can tell what happened during it. */
   private soundMarks() {
     const e = this.engine;
-    return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields };
+    return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields, powerpup: e.lastPowerpupAt };
   }
 
   /** One sound per update, the most important event winning: a shield hit also breaks the streak, a coupon pauses the run. */
@@ -461,6 +509,7 @@ export class DeliveryDashGame {
     if (state === 'crashed') this.sfx.play('crash');
     else if (state === 'reward') this.sfx.play('coupon');
     else if (e.shields < before.shields) this.sfx.play('shieldHit');
+    else if (e.lastPowerpupAt > before.powerpup) this.sfx.play('snappyDeath');
     else if (delivery && delivery.at > before.delivery) this.sfx.play(delivery.success ? 'delivered' : 'setback');
     else if ((e.lastChainBreak?.at ?? -100) > before.chainBreak) this.sfx.play('setback');
     else if ((e.lastBonusGift?.at ?? -100) > before.bonus) this.sfx.play('bonusPickup');
@@ -554,7 +603,7 @@ export class DeliveryDashGame {
         this.shopNote = '';
         this.syncUI();
         this.find('[data-live-status]').textContent = 'Roadside shop. Spend gift points on upgrades for the rest of the run. The game is paused while you shop.';
-        this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)')?.focus({ preventScroll: true });
+        (this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
       } else if ((this.engine.state as GameState) === 'reward') {
         this.syncUI();
         this.find('[data-live-status]').textContent = 'Coupon collected. Choose a free power-up to redeem. The game is paused while you choose.';
@@ -583,6 +632,8 @@ export class DeliveryDashGame {
     const progress = engine.chainProgress;
     this.find<HTMLElement>('[data-chain-fill]').style.width = `${progress ? Math.round(progress.have / progress.need * 100) : 100}%`;
     this.find('[data-points]').textContent = String(engine.giftPoints);
+    const seconds = Math.floor(engine.elapsed);
+    this.find('[data-timer]').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     this.renderDelivery();
     this.find<HTMLElement>('[data-overlay]').hidden = state === 'running';
     this.find<HTMLElement>('[data-main-card]').hidden = boardVisible;
@@ -619,7 +670,10 @@ export class DeliveryDashGame {
     boost.dataset['locked'] = String(engine.boostLockedOut);
     this.root.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
     this.root.dataset['boostLocked'] = String(engine.boostLockedOut);
-    this.find('[data-boost-label]').textContent = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
+    this.root.dataset['boostActive'] = String(engine.boostLevel > 0.3);
+    const boostLabel = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
+    this.find('[data-boost-label]').textContent = boostLabel;
+    this.find('[data-tube-label]').textContent = boostLabel;
     const remaining = (until: number) => Math.ceil(until - engine.elapsed);
     const perks: string[] = [];
     if (engine.shields) perks.push(`Shield ×${engine.shields}`);
@@ -1554,7 +1608,9 @@ export class DeliveryDashGame {
   private gustBar(): void {
     const state = this.gustState(), gust = this.engine.gust;
     if (!state || !gust) return;
-    const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, y = 24, height = 7;
+    // Sits a fixed distance down the screen, below the HUD pills, toast and delivery banner, however much the canvas is scaled.
+    const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, height = 7;
+    const y = Math.round(GUST_BAR_TOP_PX / Math.max(1, this.displayScale));
     const peak = gust.swappedAt !== null && this.engine.elapsed - gust.swappedAt < 0.3;
     c.globalAlpha = 0.8; this.rect('#0B1B33', centre - half - 2, y - 2, half * 2 + 4, height + 4); c.globalAlpha = 1;
     this.rect('#27405F', centre - half, y, half * 2, height);

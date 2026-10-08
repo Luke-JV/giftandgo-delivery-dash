@@ -39,7 +39,7 @@ Your actual Angular application’s build, CSP, global CSS and loading flow stil
 need integration checks. The prototype does not call a loyalty or coupon-store
 API. Gift points and coupons are per-run game rewards.
 
-Difficulty checks (speed 107.5 + 300(1 − e^(−t/60)) + 0.75t, row gaps from 1.6s down to a 0.55s floor at 10 minutes, route
+Difficulty checks (speed 129 + 360(1 − e^(−t/60)) + 0.9t, row gaps from 1.2s down to a 0.32s floor at 7 minutes, route
 jumps, more frequent roadworks and Giftasaurus, one shield at a time). Seeded autopiloted 900-second runs, 40 per
 setting, that follow the guaranteed route and wait for each row to clear plus a fixed delay before changing lane
 (Giftasaurus bites ignored, since the bot boosts more crudely than a player). The delay is the wait between a row
