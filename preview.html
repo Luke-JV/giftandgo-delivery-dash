@@ -1519,8 +1519,8 @@ const TRUCK_LEAN_SETTLE_SECONDS = 0.08;
 const LANE_WIDTH = 260 / 3;
 /** Where the lamps sit in the embedded sprites, as [x, y, width, height] in sprite pixels. */
 const STALLED_CAR_LAMPS = [[4, 22, 5, 5], [43, 22, 5, 5]];
-/** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
-const FERRARI_LAMPS = [[6, 43, 6, 4], [48, 43, 6, 4]];
+/** The centres of the Ferrari's left and right headlights in sprite pixels, which its indicators flash over, and how fast they flash. */
+const FERRARI_LAMPS = [[9, 45], [51, 45]];
 const FERRARI_SIGNAL_RATE = 9;
 const MAINTENANCE_BEACON = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
@@ -2417,6 +2417,8 @@ class DeliveryDashGame {
         const scale = 120 / (Math.max(-80, projectedZ) + 120);
         return { x: this.roadCentre(scale) + lateral * scale, y: 40 + (this.sceneHeight - 40) * scale, scale };
     }
+    /** Whether a ground point has driven past the bottom edge; the edge moves with the canvas height in fullscreen. */
+    pastBottom(y) { return y > this.sceneHeight + 35; }
     roadCentre(depth) {
         const time = this.engine.elapsed;
         const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
@@ -2616,7 +2618,7 @@ class DeliveryDashGame {
     }
     slotEntity(e) {
         const p = this.project((e.lane - 1) * (260 / 3), e.z);
-        if (p.y > 265)
+        if (this.pastBottom(p.y))
             return;
         const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
         const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
@@ -2967,7 +2969,7 @@ class DeliveryDashGame {
     painter(lateral, z) {
         const p = this.project(lateral, z), s = p.scale;
         return {
-            visible: p.y <= this.sceneHeight + 35,
+            visible: !this.pastBottom(p.y),
             r: (color, dx, dy, w, h) => this.rect(color, p.x + dx * s, p.y + dy * s, w * s, h * s),
             poly: (color, points) => this.polygon(color, points.map(([dx, dy]) => [p.x + dx * s, p.y + dy * s])),
         };
@@ -3071,7 +3073,7 @@ class DeliveryDashGame {
     }
     spriteBox(name, lateral, z, plane = false) {
         const image = this.scenery[name], p = this.project(lateral, z);
-        if (!image || p.y > this.sceneHeight + 35)
+        if (!image || this.pastBottom(p.y))
             return null;
         const w = Math.max(1, Math.round(image.width * p.scale)), h = Math.max(1, Math.round(image.height * p.scale));
         return { image, x: Math.round(p.x - w / 2), y: Math.round(plane ? p.y - h * 0.62 : p.y - h + 3 * p.scale), w, h, scale: p.scale, baseX: p.x, baseY: p.y };
@@ -3119,9 +3121,26 @@ class DeliveryDashGame {
     /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
     ferrari(e) {
         const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
-        this.drawSprite('ferrari', lateral, e.z, { shadow: true });
-        if (signal !== null)
-            this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE);
+        const box = this.drawSprite('ferrari', lateral, e.z, { shadow: true });
+        if (!box)
+            return;
+        // The headlight glow and the indicator keep a minimum size, so the car and its lane change read from far down the road.
+        const c = this.ctx, base = c.globalAlpha, blink = this.motion.matches || Math.floor(this.engine.elapsed * FERRARI_SIGNAL_RATE) % 2 === 0;
+        FERRARI_LAMPS.forEach(([lx, ly], side) => {
+            const signalling = signal !== null && side === (signal > lane ? 1 : 0);
+            if (signalling && !blink)
+                return;
+            const cx = Math.round(box.x + lx * box.scale), cy = Math.round(box.y + ly * box.scale), radius = Math.max(signalling ? 4 : 2.5, (signalling ? 9 : 5) * box.scale);
+            c.globalAlpha = base * (signalling ? 0.6 : 0.3);
+            c.fillStyle = signalling ? '#FFB000' : '#FFF3B0';
+            c.beginPath();
+            c.ellipse(cx, cy, radius, radius * 0.7, 0, 0, Math.PI * 2);
+            c.fill();
+            c.globalAlpha = base;
+            if (signalling)
+                this.rect('#FFC21A', cx - Math.max(3, 6 * box.scale) / 2, cy - Math.max(2, 4 * box.scale) / 2, Math.max(3, 6 * box.scale), Math.max(2, 4 * box.scale));
+        });
+        c.globalAlpha = base;
     }
     maintenanceTruck(lateral, z) { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
     /** A flock on the road: mostly still, with the odd flutter. */
@@ -3355,7 +3374,7 @@ class DeliveryDashGame {
             return;
         }
         const p = this.project((e.lane - 1) * (260 / 3), e.z);
-        if (p.y > 265)
+        if (this.pastBottom(p.y))
             return;
         const s = p.scale, x = p.x, y = p.y;
         const r = (color, dx, dy, w, h) => this.rect(color, x + dx * s, y + dy * s, w * s, h * s);
@@ -3484,7 +3503,7 @@ class DeliveryDashGame {
     powerpup(e) {
         const sprite = this.scenery['snappy'];
         const p = this.project((e.lane - 1) * (260 / 3), e.z);
-        if (!sprite || p.y > 265)
+        if (!sprite || this.pastBottom(p.y))
             return;
         const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
         const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
@@ -3527,7 +3546,7 @@ class DeliveryDashGame {
         const body = this.scenery['giftasaurusBody'], extension = this.engine.biteExtension(e);
         const head = this.scenery[this.engine.biteStage(e) === 'lean' ? 'giftasaurusOpen' : 'giftasaurusClosed'];
         const p = this.project(0, e.z), s = p.scale, c = this.ctx, calm = this.motion.matches;
-        if (!body || !head || p.y > 265)
+        if (!body || !head || this.pastBottom(p.y))
             return;
         const { bodyTilt, headTurn, unit, pivot } = this.giftasaurusPose(extension);
         // Bobblehead: the head nods on its neck while it waits, and holds still while biting.
@@ -3556,7 +3575,7 @@ class DeliveryDashGame {
     crane(e) {
         const body = this.scenery['craneBody'], ball = this.scenery['craneBall'];
         const p = this.project(0, e.z), c = this.ctx;
-        if (!body || !ball || p.y > 265 || p.scale > 2)
+        if (!body || !ball || this.pastBottom(p.y) || p.scale > 2)
             return;
         const ballLane = this.engine.craneBall(e), lateral = (ballLane - 1) * LANE_WIDTH;
         const angle = Math.asin(Math.max(-1, Math.min(1, lateral / CRANE_CHAIN)));
