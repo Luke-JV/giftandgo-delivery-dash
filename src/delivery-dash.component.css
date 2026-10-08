@@ -4,7 +4,7 @@
 .delivery-dash button { font: inherit; cursor: pointer; }
 .delivery-dash button:focus-visible { outline: 3px solid #FFC35B; outline-offset: -3px; }
 .delivery-dash button:disabled { cursor: default; opacity: 0.45; }
-.delivery-dash [hidden] { display: none !important; }
+.delivery-dash [hidden] { display: none !important; } 
 
 .dash-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .dash-header img { display: block; object-fit: contain; }
