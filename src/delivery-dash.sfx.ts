@@ -1,7 +1,7 @@
 // Sound effects, mostly synthesised with Web Audio. The Ferrari's pass is a recording served from `assets/sfx/` by default:
 // BigSoundBank's CC0 "Acceleration Aston Martin" (#0600) with the two honks from "Car Honking at 90 km/h #3" (#3438) mixed in,
 // bit-crushed to sit with the pixel art. Until it loads, or if it can't, a synthesised engine and horn stand in.
-export type SoundEffect = 'pickup' | 'bonusPickup' | 'coupon' | 'delivered' | 'setback' | 'shieldHit' | 'crash' | 'honk';
+export type SoundEffect = 'pickup' | 'bonusPickup' | 'coupon' | 'delivered' | 'setback' | 'shieldHit' | 'crash' | 'honk' | 'snappyDeath';
 
 /**
  * Where a passing car is relative to the truck: `ahead` in world units (negative once it has gone by), `arrival` in seconds
@@ -131,6 +131,13 @@ export class DeliveryDashSfx {
         if (this.engine?.recorded) break;
         this.horn(t, 0.16, 1);
         this.horn(t + 0.24, 0.22, 0.93);
+        break;
+      // Snappy gets run over: a rubber-toy squeak up, then a stepped 8-bit tumble down to a final deflating squeak.
+      case 'snappyDeath':
+        this.tone('square', 1400, 2600, t, 0.06, 0.2);
+        this.tone('square', 1600, 3000, t + 0.07, 0.07, 0.2);
+        [1760, 1480, 1245, 1047, 880, 740].forEach((f, i) => this.tone('square', f * 1.06, f, t + 0.16 + i * 0.05, 0.05, 0.16));
+        this.tone('square', 1200, 300, t + 0.47, 0.22, 0.18);
         break;
     }
   }

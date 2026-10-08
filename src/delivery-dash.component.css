@@ -28,6 +28,9 @@
 .dash-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px; background: #002855D9; color: #FFF; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .dash-pill small { font-size: 11px; font-weight: 600; color: #AEC3DC; }
 .dash-pill-points { color: #FFC35B; align-self: flex-start; }
+/* Centred on the scene rather than between the side pills, which differ in width. */
+.dash-timer { position: absolute; top: 0; left: 50%; transform: translateX(-50%); padding: 5px 10px; font-size: 14px; }
+.dash-timer svg { color: #AEC3DC; }
 .dash-score { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .dash-mult { margin-left: 2px; color: #FFC35B; font-size: 14px; font-weight: 800; transition: color 0.2s, text-shadow 0.2s; }
 .dash-mult:is([data-tier="2"], [data-tier="3"]) { color: #FFB21E; text-shadow: 0 0 6px #ED8B00; }
@@ -59,7 +62,8 @@
 .dash-delivery[data-urgent="true"] .dash-delivery-bar span { background: #FF6A4D; }
 .dash-perks { position: absolute; top: 52px; left: 10px; display: flex; flex-wrap: wrap; gap: 4px; max-width: 70%; pointer-events: none; }
 .dash-perks span { padding: 3px 8px; border-radius: 999px; background: #002855D9; color: #FFCF80; font-size: 11px; font-weight: 650; }
-.dash-toast { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: #ED8B00; color: #0A1D40; font-weight: 750; font-size: 12px; white-space: nowrap; pointer-events: none; }
+/* Below the timer, perk chips and crosswind bar so it never hides them. */
+.dash-toast { position: absolute; top: 122px; left: 50%; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: #ED8B00; color: #0A1D40; font-weight: 750; font-size: 12px; white-space: nowrap; pointer-events: none; }
 .dash-snappy { position: absolute; top: 34%; left: 50%; display: flex; flex-direction: column; align-items: center; gap: 4px; transform: translate(-50%, -50%) rotate(-7deg); color: #FFF; font-style: italic; line-height: 1; pointer-events: none; animation: dash-snappy-pop 1.3s ease-out forwards; }
 .dash-snappy-word { font-size: 42px; font-weight: 900; letter-spacing: 1px; text-decoration: line-through; text-decoration-color: #ED8B00; text-decoration-thickness: 6px; text-shadow: 0 3px 0 #002855, 0 0 12px #3C9FE4; }
 .dash-snappy-points { font-size: 30px; font-weight: 900; color: #FFE08A; text-shadow: 0 3px 0 #002855, 0 0 10px #ED8B00; }
@@ -164,23 +168,36 @@
 .delivery-dash[data-board-open="true"] .dash-scene { min-height: 540px; }
 
 /* Desktop lists the keys under the road; touch hides the strip and steers with swipes plus the thumb button. */
-.dash-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 18px; padding: 10px 12px 12px; color: #AEC3DC; font-size: 12px; font-weight: 650; }
+.dash-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; padding: 10px 12px 12px; color: #AEC3DC; font-size: 12px; font-weight: 650; }
 .dash-key-group { display: inline-flex; align-items: center; gap: 4px; }
 .dash-key-group span { margin-left: 2px; }
 .dash-controls kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border: 1px solid #2F5683; border-bottom-width: 2px; border-radius: 5px; background: #123C68; color: #FFF; font: inherit; font-size: 11px; font-weight: 800; }
-.dash-boost-meter { display: inline-block; width: 46px; height: 6px; margin-left: 6px !important; overflow: hidden; border-radius: 3px; background: #FFFFFF26; }
-.dash-boost-meter span { display: block; width: var(--boost-fill, 100%); height: 100%; margin: 0 !important; background: linear-gradient(90deg, #ED8B00, #FFC35B); transition: width 0.1s linear; }
-.delivery-dash[data-boost-locked="true"] .dash-boost-meter span { background: #6B7C93; }
 .dash-touch .dash-controls { display: none; }
 
-/* A round thumb button in the bottom corner; its ring empties as boost is spent. */
-.dash-boost { --ring: #FFC35B; position: absolute; bottom: 14px; right: 14px; display: none; place-items: center; width: 78px; height: 78px; padding: 0; border: 0; border-radius: 50%; background: conic-gradient(var(--ring) var(--boost-fill, 100%), #FFFFFF2E 0); color: #FFF; font-weight: 800 !important; font-size: 12px !important; letter-spacing: 1.5px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-shadow: 0 3px 10px #0008; transition: transform 0.08s; }
+/* A round thumb button in the bottom corner, just above the boost tube. */
+.dash-boost { --ring: #FFC35B; position: absolute; bottom: 44px; right: 14px; display: none; place-items: center; width: 78px; height: 78px; padding: 0; border: 0; border-radius: 50%; background: var(--ring); color: #FFF; font-weight: 800 !important; font-size: 12px !important; letter-spacing: 1.5px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-shadow: 0 3px 10px #0008; transition: transform 0.08s; }
 .dash-touch[data-state="running"] .dash-boost { display: grid; }
 .delivery-dash[data-thumb="left"] .dash-boost { right: auto; left: 14px; }
 .dash-boost-label { display: grid; place-items: center; width: calc(100% - 10px); height: calc(100% - 10px); border-radius: 50%; background: #123C68E6; text-shadow: 0 1px 2px #00285599; }
 .dash-boost[data-active="true"] { transform: scale(0.94); box-shadow: 0 0 0 3px #FFC35B88, 0 0 18px #ED8B00; }
 .dash-boost[data-locked="true"] { --ring: #6B7C93; font-size: 9px !important; letter-spacing: 0.5px; }
 .dash-boost:disabled { opacity: 0.45; }
+
+/* The boost tube along the bottom of the road: orange liquid drains toward the left as boost is spent, its edge sloshing. */
+.dash-tube { position: absolute; left: 50%; bottom: 10px; display: none; width: min(calc(100% - 24px), 420px); height: 24px; overflow: hidden; transform: translateX(-50%); border: 2px solid #002855; border-radius: 999px; background: linear-gradient(#F4F8FCE6, #C9D6E6E6); box-shadow: inset 0 3px 5px #00285566, 0 2px 8px #0007; pointer-events: none; }
+.delivery-dash:is([data-state="running"], [data-state="paused"]) .dash-tube { display: block; }
+.dash-tube-liquid { --liquid: linear-gradient(#FFD37A, #ED8B00 55%, #C26A00); position: absolute; top: 0; bottom: 0; left: 0; width: var(--boost-fill, 100%); background: var(--liquid); transition: width 0.1s linear; }
+.dash-tube-liquid::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 70%, #FFF7 0 1.5px, transparent 2px) 0 0 / 23px 20px, radial-gradient(circle at 70% 40%, #FFF5 0 1px, transparent 1.5px) 0 0 / 37px 20px; animation: dash-tube-bubbles 1.6s linear infinite; }
+.dash-tube-liquid::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: 6px; background: var(--liquid); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H2Q6 2.5 2 5Q-2 7.5 2 10H0Z'/%3E%3C/svg%3E") 0 0 / 6px 10px repeat-y; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H2Q6 2.5 2 5Q-2 7.5 2 10H0Z'/%3E%3C/svg%3E") 0 0 / 6px 10px repeat-y; animation: dash-tube-slosh 0.7s linear infinite; }
+.dash-tube::after { content: ""; position: absolute; top: 3px; left: 10px; right: 10px; height: 4px; border-radius: 2px; background: #FFFFFF8C; }
+.dash-tube-label { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; color: #002855; font-size: 12px; font-weight: 900; letter-spacing: 4px; text-indent: 4px; line-height: 1; text-shadow: 0 1px 0 #FFFFFF80; }
+.delivery-dash[data-boost-active="true"] .dash-tube { box-shadow: inset 0 3px 5px #00285566, 0 0 0 2px #FFC35B88, 0 0 14px #ED8B00; }
+.delivery-dash[data-boost-active="true"] .dash-tube-liquid::after { animation-duration: 0.35s; }
+.delivery-dash[data-boost-locked="true"] .dash-tube-liquid { --liquid: linear-gradient(#B7C3D2, #8796AA 55%, #6B7C93); }
+.delivery-dash[data-boost-locked="true"] .dash-tube-label { font-size: 11px; letter-spacing: 2px; text-indent: 2px; }
+@keyframes dash-tube-bubbles { to { background-position: -23px -20px, -37px -20px; } }
+@keyframes dash-tube-slosh { to { -webkit-mask-position: 0 10px; mask-position: 0 10px; } }
+@media (prefers-reduced-motion: reduce) { .dash-tube-liquid::before, .dash-tube-liquid::after { animation: none; } }
 .dash-thumb-setting { display: none; }
 .dash-touch .dash-thumb-setting { display: block; }
 .dash-touch .dash-thumb-toggle { grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; border-radius: 7px; border: 1px solid #2F5683; }

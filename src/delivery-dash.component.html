@@ -35,6 +35,10 @@
         <span class="dash-pill"><span data-score>0</span><small>pts</small><span class="dash-mult" data-multiplier>×1</span></span>
         <span class="dash-chain" aria-hidden="true"><span data-chain-fill></span></span>
       </span>
+      <span class="dash-pill dash-timer" aria-label="Run time">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 6v3.5l2 1.5M6 1.5h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span data-timer>0:00</span>
+      </span>
       <span class="dash-pill dash-pill-points" aria-label="Gift points to spend at shops">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6h12v3H2zM3 9h10v5H3zM7 6h2v8H7z" fill="currentColor"/><path d="M8 6C6 2 3 3 4 6M8 6c2-4 5-3 4 0" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
         <span data-points>0</span>
@@ -61,6 +65,10 @@
         <svg class="dash-swipe-chevron dash-swipe-chevron-right" viewBox="0 0 16 12" width="20" height="15"><path d="M2 1l5 5-5 5M9 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <span class="dash-swipe-label">SWIPE TO STEER</span>
+    </div>
+    <div class="dash-tube" aria-hidden="true">
+      <span class="dash-tube-liquid"></span>
+      <span class="dash-tube-label" data-tube-label>BOOST</span>
     </div>
     <button class="dash-boost" type="button" data-action="boost" aria-label="Boost. Hold to go faster" disabled>
       <span class="dash-boost-label" data-boost-label>BOOST</span>
@@ -102,8 +110,10 @@
   </div>
   <footer class="dash-controls" aria-label="Keyboard controls">
     <span class="dash-key-group"><kbd>←</kbd><kbd>→</kbd><span>Steer</span></span>
-    <span class="dash-key-group"><kbd>↑</kbd><span>Boost</span><span class="dash-boost-meter" data-boost-meter aria-hidden="true"><span></span></span></span>
+    <span class="dash-key-group"><kbd>↑</kbd><span>Boost</span></span>
     <span class="dash-key-group"><kbd>P</kbd><span>Pause</span></span>
+    <span class="dash-key-group"><kbd>M</kbd><span>Mute</span></span>
+    <span class="dash-key-group"><kbd>F</kbd><span>Fullscreen</span></span>
   </footer>
   <span class="dash-sr-only" role="status" aria-live="polite" data-live-status></span>
 </section>

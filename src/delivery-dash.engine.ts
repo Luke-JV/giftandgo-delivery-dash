@@ -38,24 +38,25 @@ export interface SlotSpin { startedAt: number; stopAt: [number, number, number];
 export interface SlotResult { outcome: SlotOutcome; amount: number; at: number; }
 export const SHIELD_LIMIT = 1;
 /**
- * Speed in world units per second after t seconds driven: it climbs quickly to about 3× the starting pace in the
+ * Speed in world units per second after t seconds driven: it climbs quickly to about 3.2× the starting pace in the
  * first minute, then creeps up for the rest of the run with no ceiling. Rows are spaced in seconds, so speed
  * sets how the game looks and scores; how hard it is to react comes from ROW_GAPS and DIFFICULTY_FROM below.
  */
-export const SPEED_START = 107.5;
-export const SPEED_RISE = 300;
+export const SPEED_START = 129;
+export const SPEED_RISE = 360;
 export const SPEED_RISE_SECONDS = 60;
-export const SPEED_CREEP = 0.75;
+export const SPEED_CREEP = 0.9;
 export const speedAt = (seconds: number): number => SPEED_START + SPEED_RISE * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS)) + SPEED_CREEP * seconds;
 /** Distance covered in `seconds` of driving: the integral of `speedAt`. */
 export const distanceAt = (seconds: number): number => SPEED_START * seconds + SPEED_RISE * (seconds - SPEED_RISE_SECONDS * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS))) + SPEED_CREEP / 2 * seconds * seconds;
 /**
  * Seconds between rows at the given time into the run, linearly between these points and flat after the last.
- * Easy to react to for the first 5 minutes, actively hard from 5 to 10, and from 10 minutes on it stays at 0.55s: a
- * two-lane jump takes 0.32s to cross, so that leaves about 200ms to spot it and press, which is already a very good
+ * Comfortable for the first minute, steadily harder to 5 minutes, and from 7 minutes on it stays at 0.32s. Rows are
+ * visible seconds ahead, so the limit is timing, not spotting: an edge-to-edge jump between two blocked rows then has
+ * about a 150ms window to start in (it needs 1.43 lanes, 0.23s, to clear the middle lane's hitbox), an expert
  * player's margin with nothing left over for fatigue or a slip.
  */
-export const ROW_GAPS: readonly (readonly [number, number])[] = [[0, 1.6], [60, 1.4], [150, 1.2], [300, 0.95], [600, 0.55]];
+export const ROW_GAPS: readonly (readonly [number, number])[] = [[0, 1.2], [30, 1.0], [90, 0.8], [180, 0.6], [300, 0.45], [420, 0.32]];
 export const rowGapAt = (seconds: number): number => {
   const next = ROW_GAPS.findIndex(([time]) => time > seconds);
   if (next === -1) return ROW_GAPS[ROW_GAPS.length - 1][1];
@@ -63,8 +64,8 @@ export const rowGapAt = (seconds: number): number => {
   return fromGap + (toGap - fromGap) * (seconds - fromTime) / (toTime - fromTime);
 };
 /** Seconds into the run when each tuning ramp below reaches its full value; before that it eases in from its starting value. */
-const DIFFICULTY_FROM = 120;
-const DIFFICULTY_FULL = 600;
+const DIFFICULTY_FROM = 30;
+const DIFFICULTY_FULL = 360;
 /** 0 until DIFFICULTY_FROM, then rising to 1 at DIFFICULTY_FULL; scales how often the harder patterns and traps appear. */
 export const difficultyAt = (seconds: number): number => Math.max(0, Math.min(1, (seconds - DIFFICULTY_FROM) / (DIFFICULTY_FULL - DIFFICULTY_FROM)));
 const blend = (easy: number, hard: number, seconds: number): number => easy + (hard - easy) * difficultyAt(seconds);
@@ -138,6 +139,14 @@ export const BITE_REACH = 0.6;
 /** Half the truck's width, in lanes, and how far past its near side the jaws must reach to bite (the head is then down on the roof). */
 const TRUCK_HALF_WIDTH = 0.32;
 const BITE_OVERLAP = 0.2;
+/**
+ * A plain obstacle stays in the hit zone for at least this long. Hitboxes leave a 0.14-lane gap between neighbouring
+ * lanes, and above about 890 units/s a row would otherwise pass in under the 22ms the truck takes to cross that gap,
+ * letting a lane change slip between two blocked lanes.
+ */
+const MIN_HIT_SECONDS = 0.026;
+/** Pace trickle points per second at the starting pace, before the chain multiplier. */
+export const PACE_SCORE = 1.25;
 /**
  * A rare silver Ferrari comes down the road toward the truck, FERRARI_PACE times the road's own speed again, changing lane
  * three times on the way. It always ends in a lane other than the route lane (where the route gift sits), and the last
@@ -244,7 +253,7 @@ export class DeliveryDashEngine {
   private safeLane = 1;
 
   constructor(private readonly random: () => number = Math.random) {}
-  // Continuous time-based acceleration: 107.5 at the start, about 340 after one minute, 630 after five, 860 after ten.
+  // Continuous time-based acceleration: 129 at the start, about 410 after one minute, 755 after five, 1030 after ten.
   // No speed ceiling; pause time does not count toward difficulty.
   get speed(): number { return speedAt(this.elapsed); }
   boostHeld = false;
@@ -444,14 +453,14 @@ export class DeliveryDashEngine {
     if (reward === 'ghost') this.ghostUntil = Math.max(this.elapsed, this.ghostUntil) + 7;
     if (reward === 'jackpot') this.jackpotUntil = Math.max(this.elapsed, this.jackpotUntil) + 10;
     if (reward === 'rain') {
-      // Every hazard still ahead becomes a gift, and new rows are all gifts for a few seconds.
-      for (const e of this.entities) if (e.z >= 48 && isHazard(e.kind)) e.kind = 'gift';
+      // Every hazard still ahead becomes a gift, and new rows are all gifts for a few seconds. Each can roll a colour like a route gift.
+      for (const e of this.entities) if (e.z >= 48 && isHazard(e.kind)) { e.kind = 'gift'; e.variant = this.rollGiftVariant(); }
       this.entities = this.entities.filter(e => (e.kind !== 'crane' && e.kind !== 'ferrari') || e.z < 48);
       // Closures still ahead are cleared into a trail of gifts along the lane.
       const works = this.entities.filter(e => e.kind === 'roadworks' && e.z >= 48);
       this.entities = this.entities.filter(e => !works.includes(e));
       for (const e of works) for (let z = e.z; z <= e.z + (e.length ?? 0); z += 70) {
-        this.entities.push({ id: this.nextId++, row: e.row, lane: e.lane, z, kind: 'gift', handled: false });
+        this.entities.push({ id: this.nextId++, row: e.row, lane: e.lane, z, kind: 'gift', handled: false, variant: this.rollGiftVariant() });
       }
       this.rainUntil = Math.max(this.elapsed, this.rainUntil) + 4;
       this.sweepAt = this.elapsed;
@@ -479,12 +488,13 @@ export class DeliveryDashEngine {
       // An oncoming car closes on the truck by its own speed as well as the road's.
       const moved = e.kind === 'ferrari' ? travel + this.speed * FERRARI_PACE * dt : travel;
       e.z -= moved;
-      if (e.handled || e.kind === 'gantry' || e.z > 68 || previousZ + length < 48) continue;
+      const tail = isHazard(e.kind) && e.kind !== 'giftasaurus' ? Math.min(48, 68 - travel / dt * MIN_HIT_SECONDS) : 48;
+      if (e.handled || e.kind === 'gantry' || e.z > 68 || previousZ + length < tail) continue;
       // Swept overlap catches an obstacle even when one fast frame crosses the
       // entire collision zone, and uses the truck's actual lane-change path.
       // A roadworks closure overlaps for its whole length, so steering into it crashes.
       const enter = Math.max(0, (previousZ - 68) / moved);
-      const leave = Math.min(1, (previousZ + length - 48) / moved);
+      const leave = Math.min(1, (previousZ + length - tail) / moved);
       const laneAt = (fraction: number) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
       const a = laneAt(enter), b = laneAt(leave);
       // The Dustbuster reaches gifts one lane either side of the truck.
@@ -531,13 +541,13 @@ export class DeliveryDashEngine {
     this.updateTunnel();
     this.updateGust(dt);
     // Score trickles in with pace (not boost), so distance matters but never dominates.
-    this.score += this.speed / SPEED_START * dt * this.multiplier;
+    this.score += PACE_SCORE * this.speed / SPEED_START * dt * this.multiplier;
     this.updateDelivery();
     this.updateFerrari();
     this.spawnIn -= dt;
     if (this.spawnIn <= 0) {
       // Spawn 4.8 seconds ahead, accounting for future acceleration. Density
-      // increases, but adjacent rows keep at least 0.8 seconds of reaction time.
+      // increases, but adjacent rows keep at least 0.47 seconds apart (ROW_GAPS).
       this.spawnRow(68 + this.travelAfter(BAY_LEAD_SECONDS));
       this.spawnIn += rowGapAt(this.elapsed);
     }
@@ -968,7 +978,7 @@ export class DeliveryDashEngine {
       const zoneKinds: EntityKind[] = zone === 'tunnel' ? ['stalledcar'] : zone === 'bridge' ? ['birds', 'puddle'] : [];
       const kinds: EntityKind[] = zoneKinds.length && this.random() < ZONE_HAZARD_CHANCE ? zoneKinds : plainKinds;
       const kind = kinds[Math.floor(this.random() * kinds.length)];
-      this.entities.push({ id: this.nextId++, row: this.row, lane, z, kind: raining ? 'gift' : kind, handled: false });
+      this.entities.push({ id: this.nextId++, row: this.row, lane, z, kind: raining ? 'gift' : kind, handled: false, variant: raining ? this.rollGiftVariant() : undefined });
     }
     if (shopRow) this.entities.push({ id: this.nextId++, row: this.row, lane: shopLane, z, kind: 'shop', handled: false });
     if (deliveryRow) this.entities.push({ id: this.nextId++, row: this.row, lane: deliveryLane, z, kind: 'delivery', handled: false });
