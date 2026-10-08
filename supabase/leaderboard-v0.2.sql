@@ -63,9 +63,11 @@ drop function if exists public.submit_score_v02(text, int, int, int, int, real, 
 -- the rules can pay for a run of this length:
 --   gift points: a gift pays at most 250 (a purple x5 gift under a 50-point jackpot)
 --   gifts:       at most x8 the gift points earned (the multiplier tops out at x8)
---   pace trickle: 1 point per second at the start, rising with pace, at x8: 8 * (t + 1.2 * t^2 / 86)
+--   pace trickle: 1 point per second at the start, rising with pace, at x8: 8 * distance(t) / 86
+--                (speed is 86 + 240 * (1 - e^(-t/60)) + 0.6t, so distance(t) is 86t + 240 * (t - 60 * (1 - e^(-t/60))) + 0.3t^2)
 --   deliveries:  at most one per 25s (the first needs about 20s), each worth 100 * 8
 --   powerpups:   at most one per 50s (the first from 35s), each worth 250 * 8
+--   slots:       at most one per 30s (the first from 25s), each worth at most 500 * 8
 create or replace function public.submit_score_v02(
   p_run_id uuid, p_nickname text, p_score int, p_distance int, p_gifts int, p_points int, p_duration real,
   p_max_multiplier int, p_deliveries int
@@ -88,17 +90,17 @@ begin
   if p_duration < 3 then raise exception 'run too short'; end if;
   if p_score < 0 or p_distance < 0 or p_gifts < 0 or p_points < 0 or p_deliveries < 0 then raise exception 'invalid run'; end if;
   if p_max_multiplier < 1 or p_max_multiplier > 8 then raise exception 'implausible multiplier'; end if;
-  if p_distance > 86 * p_duration + 1.2 * p_duration * p_duration
-     + 0.6 * (86 + 2.4 * p_duration) * (6.5 + 0.45 * p_duration) + 50 then
+  if p_distance > (86 * p_duration + 240 * (p_duration - 60 * (1 - exp(-p_duration / 60))) + 0.3 * p_duration * p_duration)
+     + 0.6 * (86 + 240 * (1 - exp(-p_duration / 60)) + 0.6 * p_duration) * (6.5 + 0.45 * p_duration) + 50 then
     raise exception 'implausible distance';
   end if;
-  if p_gifts > p_duration / 0.8 + 25 * (p_duration / 30 + 1)
+  if p_gifts > p_duration / 0.5 + 25 * (p_duration / 30 + 1)
      or p_points > p_gifts * 250 + 100 * (p_duration / 30 + 1) then
     raise exception 'implausible gifts';
   end if;
   if p_deliveries > p_duration / 25 + 1 then raise exception 'implausible deliveries'; end if;
-  if p_score > 8 * p_points + 8 * (p_duration + 1.2 * p_duration * p_duration / 86)
-     + 800 * (p_duration / 25 + 1) + 2000 * (p_duration / 50 + 1) + 100 then
+  if p_score > 8 * p_points + 8 * (86 * p_duration + 240 * (p_duration - 60 * (1 - exp(-p_duration / 60))) + 0.3 * p_duration * p_duration) / 86
+     + 800 * (p_duration / 25 + 1) + 2000 * (p_duration / 50 + 1) + 4000 * (p_duration / 30 + 1) + 100 then
     raise exception 'implausible score';
   end if;
   insert into public.scores_v02 (nickname, score, distance, gifts, points, max_multiplier, deliveries, duration)

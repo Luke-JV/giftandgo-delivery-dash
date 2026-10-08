@@ -99,7 +99,7 @@
 .delivery-dash button { font: inherit; cursor: pointer; }
 .delivery-dash button:focus-visible { outline: 3px solid #FFC35B; outline-offset: -3px; }
 .delivery-dash button:disabled { cursor: default; opacity: 0.45; }
-.delivery-dash [hidden] { display: none !important; }
+.delivery-dash [hidden] { display: none !important; } 
 
 .dash-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .dash-header img { display: block; object-fit: contain; }
@@ -323,7 +323,7 @@ const REWARD_CATALOG = {
         icon: `<rect x="3" y="10" width="18" height="11" rx="1.5" fill="currentColor"/><path d="M12 10v11M2 7h20v3H2z" style="stroke:var(--accent)" stroke-width="2" fill="currentColor"/><path d="M12 7c-2-4-6-3-5 0M12 7c2-4 6-3 5 0" ${WHITE_STROKE} stroke-width="2"/>`,
     },
     shield: {
-        label: 'Shield', description: 'Absorbs one crash · hold up to 3', accent: '#1FA3B5', toast: 'Shield equipped!',
+        label: 'Shield', description: 'Absorbs one crash · hold one', accent: '#1FA3B5', toast: 'Shield equipped!',
         icon: `<path d="M12 2 21 5.5v6C21 17 17 20.5 12 22 7 20.5 3 17 3 11.5v-6z" fill="currentColor"/><path d="m8 12 3 3 5-6" fill="none" style="stroke:var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
     },
     nitro: {
@@ -370,6 +370,15 @@ const GIFT_VARIANT_TOASTS = {
     green: 'Green gift! Nitro refilled',
     purple: 'Purple gift! Five times the points',
     pink: 'Pink gift! Double points and a shield',
+    slot: 'Slot machine!',
+};
+const SLOT_RESULT_TOASTS = {
+    jackpot: 'JACKPOT!',
+    cursed: 'CURSED!',
+    triple: 'Three of a kind!',
+    pair: 'A pair!',
+    miss: 'No luck',
+    loss: 'Lump of coal!',
 };
 
 const COUPON_REWARDS = ['ghost', 'jackpot', 'rain'];
@@ -380,8 +389,54 @@ const GIFT_VARIANTS = [
     { variant: 'green', chance: 0.06, multiplier: 1 },
     { variant: 'purple', chance: 0.03, multiplier: 5 },
     { variant: 'pink', chance: 0.02, multiplier: 2 },
+    { variant: 'slot', chance: 0.02, multiplier: 1 },
 ];
-const SHIELD_LIMIT = 3;
+const SLOT_OUTCOMES = [
+    { outcome: 'jackpot', chance: 0.03, payout: 500 },
+    { outcome: 'triple', chance: 0.12, payout: 150 },
+    { outcome: 'pair', chance: 0.3, payout: 50 },
+    { outcome: 'miss', chance: 0.245, payout: 0 },
+    { outcome: 'loss', chance: 0.3, payout: -100 },
+    { outcome: 'cursed', chance: 0.005, payout: -5000 },
+];
+const SLOT_SYMBOLS = ['seven', 'gift', 'star', 'bell'];
+/** Seconds after pickup at which each reel stops; the last one settles the result. */
+const SLOT_REEL_STOPS = [0.9, 1.25, 1.6];
+/** A slot machine is never offered again within this many seconds of the last one. */
+const SLOT_MIN_GAP = 30;
+const SHIELD_LIMIT = 1;
+/**
+ * Speed in world units per second after t seconds driven: it climbs quickly to about 3× the starting pace in the
+ * first minute, then creeps up for the rest of the run with no ceiling. Rows are spaced in seconds, so speed
+ * sets how the game looks and scores; how hard it is to react comes from ROW_GAPS and DIFFICULTY_FROM below.
+ */
+const SPEED_START = 86;
+const SPEED_RISE = 240;
+const SPEED_RISE_SECONDS = 60;
+const SPEED_CREEP = 0.6;
+const speedAt = (seconds) => SPEED_START + SPEED_RISE * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS)) + SPEED_CREEP * seconds;
+/** Distance covered in `seconds` of driving: the integral of `speedAt`. */
+const distanceAt = (seconds) => SPEED_START * seconds + SPEED_RISE * (seconds - SPEED_RISE_SECONDS * (1 - Math.exp(-seconds / SPEED_RISE_SECONDS))) + SPEED_CREEP / 2 * seconds * seconds;
+/**
+ * Seconds between rows at the given time into the run, linearly between these points and flat after the last.
+ * Easy to react to for the first 5 minutes, actively hard from 5 to 10, and from 10 minutes on it stays at 0.55s: a
+ * two-lane jump takes 0.32s to cross, so that leaves about 200ms to spot it and press, which is already a very good
+ * player's margin with nothing left over for fatigue or a slip.
+ */
+const ROW_GAPS = [[0, 1.6], [60, 1.4], [150, 1.2], [300, 0.95], [600, 0.55]];
+const rowGapAt = (seconds) => {
+    const next = ROW_GAPS.findIndex(([time]) => time > seconds);
+    if (next === -1)
+        return ROW_GAPS[ROW_GAPS.length - 1][1];
+    const [fromTime, fromGap] = ROW_GAPS[next - 1], [toTime, toGap] = ROW_GAPS[next];
+    return fromGap + (toGap - fromGap) * (seconds - fromTime) / (toTime - fromTime);
+};
+/** Seconds into the run when each tuning ramp below reaches its full value; before that it eases in from its starting value. */
+const DIFFICULTY_FROM = 120;
+const DIFFICULTY_FULL = 600;
+/** 0 until DIFFICULTY_FROM, then rising to 1 at DIFFICULTY_FULL; scales how often the harder patterns and traps appear. */
+const difficultyAt = (seconds) => Math.max(0, Math.min(1, (seconds - DIFFICULTY_FROM) / (DIFFICULTY_FULL - DIFFICULTY_FROM)));
+const blend = (easy, hard, seconds) => easy + (hard - easy) * difficultyAt(seconds);
 /** Consecutive route gifts needed for each multiplier step: x1, x2, ... x8. */
 const MULTIPLIER_TIERS = [0, 5, 10, 20, 30, 40, 50, 60];
 const DELIVERY_BONUS = 100;
@@ -431,6 +486,9 @@ class DeliveryDashEngine {
         this.lastGainAt = -100;
         this.lastChainBreak = null;
         this.lastBonusGift = null;
+        this.slotSpin = null;
+        this.lastSlotResult = null;
+        this.nextSlotAt = 25;
         this.nextDeliveryAt = 20;
         this.lastPowerpupAt = -100;
         this.nextPowerpupAt = 35;
@@ -476,15 +534,15 @@ class DeliveryDashEngine {
         this.boostLevel = 0;
         this.boostLocked = false;
     }
-    // Continuous time-based acceleration: 86 at the start, 230 after one minute.
+    // Continuous time-based acceleration: 86 at the start, about 300 after one minute, 500 after five, 690 after ten.
     // No speed ceiling; pause time does not count toward difficulty.
-    get speed() { return 86 + 2.4 * this.elapsed; }
+    get speed() { return speedAt(this.elapsed); }
     static { this.BOOST_FACTOR = 1.6; }
     get magnet() { return this.magnetUntil > this.elapsed; }
     get boostActive() { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
     get boostMultiplier() { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
-    get pace() { return this.speed * this.boostMultiplier / 86; }
-    travelAfter(seconds) { return this.speed * seconds + 1.2 * seconds * seconds; }
+    get pace() { return this.speed * this.boostMultiplier / SPEED_START; }
+    travelAfter(seconds) { return distanceAt(this.elapsed + seconds) - distanceAt(this.elapsed); }
     /** Score multiplier for the current chain of route gifts. */
     get multiplier() { return MULTIPLIER_TIERS.filter(threshold => this.chain >= threshold).length; }
     /** Progress through the current tier, or null at the cap. */
@@ -512,6 +570,9 @@ class DeliveryDashEngine {
         this.lastPowerpupAt = -100;
         this.nextPowerpupAt = 35 + this.random() * 30;
         this.nextGiftasaurusAt = 45 + this.random() * 20;
+        this.slotSpin = null;
+        this.lastSlotResult = null;
+        this.nextSlotAt = 25 + this.random() * 20;
         this.spawnIn = 1.6;
         this.giftPoints = this.pointsEarned = this.spent = this.coupons = this.shields = this.nitroLevel = this.loyaltyLevel = 0;
         this.jackpotUntil = this.ghostUntil = this.rainUntil = this.invulnerableUntil = 0;
@@ -561,17 +622,70 @@ class DeliveryDashEngine {
         }
         if (variant === 'pink')
             this.shields = Math.min(SHIELD_LIMIT, this.shields + 1);
+        if (variant === 'slot')
+            this.startSlotSpin();
         this.lastBonusGift = { variant, at: this.elapsed };
     }
-    /** One roll per route gift; a shield gift is never offered to a full set of shields. */
+    /** One roll per route gift; a shield gift is never offered to a full set of shields, and a slot machine only once its timer is up and no spin is running. */
     rollGiftVariant() {
         let roll = this.random();
         for (const rule of GIFT_VARIANTS) {
-            if (roll < rule.chance)
-                return rule.variant === 'pink' && this.shields >= SHIELD_LIMIT ? undefined : rule.variant;
+            if (roll < rule.chance) {
+                if (rule.variant === 'pink' && this.shields >= SHIELD_LIMIT)
+                    return undefined;
+                if (rule.variant !== 'slot')
+                    return rule.variant;
+                if (this.elapsed < this.nextSlotAt || this.slotSpinning)
+                    return undefined;
+                this.nextSlotAt = this.elapsed + SLOT_MIN_GAP + this.random() * 30;
+                return rule.variant;
+            }
             roll -= rule.chance;
         }
         return undefined;
+    }
+    get slotSpinning() { return this.slotSpin !== null && this.slotSpin.settledAt === null; }
+    pick(items) { return items[Math.floor(this.random() * items.length)]; }
+    /** The outcome is rolled at pickup, with the multiplier locked in, and the reels are chosen to show it. */
+    startSlotSpin() {
+        let roll = this.random();
+        const rule = SLOT_OUTCOMES.find(candidate => (roll -= candidate.chance) < 0) ?? SLOT_OUTCOMES[SLOT_OUTCOMES.length - 1];
+        this.slotSpin = {
+            startedAt: this.elapsed, stopAt: [this.elapsed + SLOT_REEL_STOPS[0], this.elapsed + SLOT_REEL_STOPS[1], this.elapsed + SLOT_REEL_STOPS[2]],
+            reels: this.slotReels(rule.outcome), outcome: rule.outcome, amount: rule.payout > 0 ? rule.payout * this.multiplier : rule.payout, settledAt: null,
+        };
+    }
+    slotReels(outcome) {
+        if (outcome === 'jackpot')
+            return ['seven', 'seven', 'seven'];
+        if (outcome === 'cursed')
+            return ['coal', 'coal', 'coal'];
+        if (outcome === 'triple') {
+            const symbol = this.pick(SLOT_SYMBOLS.filter(candidate => candidate !== 'seven'));
+            return [symbol, symbol, symbol];
+        }
+        if (outcome === 'miss') {
+            const pool = [...SLOT_SYMBOLS], picks = [];
+            while (picks.length < 3)
+                picks.push(pool.splice(Math.floor(this.random() * pool.length), 1)[0]);
+            return [picks[0], picks[1], picks[2]];
+        }
+        const pairSymbol = outcome === 'loss' ? 'coal' : this.pick(SLOT_SYMBOLS);
+        const odd = this.pick(SLOT_SYMBOLS.filter(candidate => candidate !== pairSymbol));
+        const reels = [pairSymbol, pairSymbol, pairSymbol];
+        reels[Math.floor(this.random() * 3)] = odd;
+        return reels;
+    }
+    settleSlot() {
+        const spin = this.slotSpin;
+        if (!spin || spin.settledAt !== null || this.elapsed < spin.stopAt[2])
+            return;
+        spin.settledAt = this.elapsed;
+        if (spin.amount > 0)
+            this.addScore(spin.amount);
+        else if (spin.amount < 0)
+            this.score = Math.max(0, this.score + spin.amount);
+        this.lastSlotResult = { outcome: spin.outcome, amount: spin.amount, at: this.elapsed };
     }
     /** Nitro tank capacity in seconds of boost. */
     get nitroSeconds() { return 3 + this.nitroLevel; }
@@ -588,7 +702,7 @@ class DeliveryDashEngine {
     owned(item) {
         return item === 'shield' ? this.shields : item === 'nitro' ? this.nitroLevel : item === 'loyalty' ? this.loyaltyLevel : item === 'magnet' ? Number(this.magnet) : 0;
     }
-    /** Price of the next level, or null when sold out. Shields restock as they are used, up to three. Freeplay costs the whole balance. */
+    /** Price of the next level, or null when sold out. Shields restock as they are used, up to the limit. Freeplay costs the whole balance. */
     shopCost(item) {
         const costs = SHOP_ITEMS.find(entry => entry.item === item)?.costs ?? [];
         if (item === 'shield')
@@ -753,15 +867,16 @@ class DeliveryDashEngine {
         this.entities = this.entities.filter(e => e.z + (e.length ?? 0) > -90 && !((e.kind === 'gift' || e.kind === 'coupon' || e.kind === 'shop' || e.kind === 'delivery' || e.kind === 'powerpup') && e.handled));
         if (this.state !== 'running')
             return;
+        this.settleSlot();
         // Score trickles in with pace (not boost), so distance matters but never dominates.
-        this.score += this.speed / 86 * dt * this.multiplier;
+        this.score += this.speed / SPEED_START * dt * this.multiplier;
         this.updateDelivery();
         this.spawnIn -= dt;
         if (this.spawnIn <= 0) {
             // Spawn 4.8 seconds ahead, accounting for future acceleration. Density
             // increases, but adjacent rows keep at least 0.8 seconds of reaction time.
             this.spawnRow(68 + this.travelAfter(BAY_LEAD_SECONDS));
-            this.spawnIn += Math.max(0.8, 1.8 / (1 + this.elapsed / 70));
+            this.spawnIn += rowGapAt(this.elapsed);
         }
     }
     /** How far the Giftasaurus jaws are stretched onto the road, from 0 (on the verge) to 1. */
@@ -787,7 +902,7 @@ class DeliveryDashEngine {
         let time = 0, travelled = 0;
         while (travelled < z - 68 && time < 30) {
             time += 0.02;
-            travelled += (this.speed + 2.4 * time) * 0.02 * (time <= boostSeconds ? DeliveryDashEngine.BOOST_FACTOR : 1);
+            travelled += speedAt(this.elapsed + time) * 0.02 * (time <= boostSeconds ? DeliveryDashEngine.BOOST_FACTOR : 1);
         }
         return time;
     }
@@ -883,8 +998,8 @@ class DeliveryDashEngine {
      */
     startRoadworks(z) {
         const openEdge = this.safeLane === 1 ? (this.random() < 0.5 ? 0 : 2) : this.safeLane;
-        const double = this.random() < Math.min(0.45, 0.2 + this.elapsed / 400);
-        const flip = double && this.random() < 0.2;
+        const double = this.random() < blend(0.2, 0.65, this.elapsed);
+        const flip = double && this.random() < blend(0.2, 0.4, this.elapsed);
         const close = (lanes, from, seconds) => {
             for (const lane of lanes)
                 this.entities.push({ id: this.nextId++, row: this.row, lane, z: from, kind: 'roadworks', handled: false, length: this.speed * seconds });
@@ -897,13 +1012,15 @@ class DeliveryDashEngine {
             close([0, 1, 2].filter(l => l !== 2 - openEdge), z + this.speed * (firstSeconds + gapSeconds), secondSeconds);
             total += gapSeconds + secondSeconds;
         }
-        this.nextRoadworksAt = this.elapsed + total + 22 + this.random() * 18;
+        this.nextRoadworksAt = this.elapsed + total + blend(22, 14, this.elapsed) + this.random() * blend(18, 14, this.elapsed);
     }
     spawnRow(z) {
         // Successive guaranteed routes move at most one lane (a 0.16s change).
         if (this.row > 0 && this.row % 4 === 0) {
-            const patterns = ['single', 'split', 'slalom', 'breather'].filter(p => p !== this.pattern);
-            this.pattern = patterns[Math.floor(this.random() * patterns.length)];
+            // Clear stretches thin out as the run goes on, but never disappear.
+            const lullChance = blend(0.4, 0.05, this.elapsed);
+            const patterns = ['single', 'split', 'slalom'].filter(p => p !== this.pattern);
+            this.pattern = this.pattern !== 'breather' && this.random() < lullChance ? 'breather' : patterns[Math.floor(this.random() * patterns.length)];
         }
         if (this.pattern === 'slalom') {
             if (this.safeLane === 2)
@@ -911,6 +1028,9 @@ class DeliveryDashEngine {
             if (this.safeLane === 0)
                 this.slalomDirection = 1;
             this.safeLane += this.slalomDirection;
+        }
+        else if (this.safeLane !== 1 && this.random() < blend(0, 0.3, this.elapsed)) {
+            this.safeLane = 2 - this.safeLane;
         }
         else
             this.safeLane = Math.max(0, Math.min(2, this.safeLane + Math.floor(this.random() * 3) - 1));
@@ -949,7 +1069,7 @@ class DeliveryDashEngine {
             this.timeBite(dino);
             this.entities.push(dino);
             this.entities.push({ id: this.nextId++, row: this.row, lane: side, z, kind: 'gift', handled: false, route: true });
-            this.nextGiftasaurusAt = this.elapsed + 40 + this.random() * 25;
+            this.nextGiftasaurusAt = this.elapsed + blend(40, 26, this.elapsed) + this.random() * blend(25, 18, this.elapsed);
             this.safeLane = side;
             this.pattern = 'single';
             this.row++;
@@ -982,7 +1102,7 @@ class DeliveryDashEngine {
         const deliveryLane = this.delivery?.lane ?? -1;
         // A delivery's lane stays clear from reservation until its bay passes.
         const hazardLanes = others.filter(l => l !== deliveryLane);
-        const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
+        const blocked = shopRow || deliveryRow || transition || open.length < 2 || !hazardLanes.length ? [] : couponRow || powerpupRow ? others.filter(l => l !== specialLane) : this.pattern === 'breather' ? [] : this.pattern === 'split' || this.pattern === 'slalom' || this.random() < blend(0.1, 0.7, this.elapsed) ? hazardLanes : [hazardLanes[Math.floor(this.random() * hazardLanes.length)]];
         const bayLane = shopRow ? shopLane : deliveryRow ? deliveryLane : -1;
         for (const lane of blocked) {
             const kinds = this.row < 3 ? ['cone', 'barrier'] : ['cone', 'barrier', 'drum', 'pothole'];
@@ -1095,6 +1215,11 @@ const fetchRank = async (score) => {
 
 
 
+const SLOT_PANEL = { width: 46, height: 62, top: 66, edge: 3, reelWidth: 11, reelHeight: 26, reelPitch: 14 };
+const SLOT_ENTER_SECONDS = 0.25;
+const SLOT_RESULT_SECONDS = 1.1;
+const SLOT_EXIT_SECONDS = 0.3;
+const SLOT_REEL_CYCLE = ['seven', 'gift', 'star', 'bell', 'coal'];
 /** Reusable canvas game host. No Angular or third-party dependency. */
 class DeliveryDashGame {
     static { this.W = 240; }
@@ -1123,6 +1248,9 @@ class DeliveryDashGame {
         this.lastDeliveryAt = -100;
         this.lastPowerpupAt = -100;
         this.lastBonusGiftAt = -100;
+        this.lastSlotAt = -100;
+        this.slotSpinKey = -1;
+        this.slotSide = 1;
         this.lastChainBreakAt = -100;
         this.lastMultiplier = 1;
         this.streakFlashUntil = 0;
@@ -1359,6 +1487,7 @@ class DeliveryDashGame {
         this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
         this.lastPowerpupAt = this.engine.lastPowerpupAt;
         this.lastBonusGiftAt = this.engine.lastBonusGift?.at ?? -100;
+        this.lastSlotAt = this.engine.lastSlotResult?.at ?? -100;
         this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
         this.lastMultiplier = this.engine.multiplier;
         this.deliveryKey = '';
@@ -1546,7 +1675,7 @@ class DeliveryDashGame {
         this.lastTime = now;
         if (this.engine.state === 'running') {
             this.engine.update(dt);
-            const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / 0.18);
+            const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / 0.45);
             this.cameraLane += (this.engine.lanePosition - this.cameraLane) * follow;
             if (this.engine.lastPowerpupAt > this.lastPowerpupAt)
                 this.syncUI();
@@ -1680,6 +1809,13 @@ class DeliveryDashGame {
             this.find('[data-live-status]').textContent = text;
         }
         this.lastBonusGiftAt = bonusGift?.at ?? -100;
+        const slotResult = engine.lastSlotResult;
+        if (slotResult && slotResult.at > this.lastSlotAt) {
+            const text = slotResult.amount ? `${SLOT_RESULT_TOASTS[slotResult.outcome]} ${slotResult.amount > 0 ? '+' : '−'}${Math.abs(slotResult.amount)}` : SLOT_RESULT_TOASTS[slotResult.outcome];
+            this.showToast(text);
+            this.find('[data-live-status]').textContent = text;
+        }
+        this.lastSlotAt = slotResult?.at ?? -100;
         if (engine.lastGainAt > this.lastGainAt && !this.toastLocked) {
             this.find('[data-toast]').textContent = `+${engine.lastGain}`;
             this.toastUntil = engine.elapsed + 0.85;
@@ -1928,14 +2064,13 @@ class DeliveryDashGame {
         const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
         // Anchor the camera at the truck's contact depth. Curvature increases into
         // the distance; every lane, obstacle and roadside object uses this centre.
-        // Swing the vanishing point most of the way over the truck's lane once it
-        // settles, so the truck leans down its lane; the lag shows the turn mid-change.
-        const yaw = (this.cameraLane - 1) * (260 / 3) * 0.6 * (6 / 7 - depth);
+        // Nudge the vanishing point only slightly towards the truck's lane, and slowly, so the
+        // view never swings; the truck sprite is sheared to the lane direction instead (drawTruck).
+        const yaw = (this.cameraLane - 1) * (260 / 3) * 0.2 * (6 / 7 - depth);
         return 120 + bend * (Math.pow(1 - depth, 2) - Math.pow(1 - 6 / 7, 2)) + yaw;
     }
     bridgeRange() {
         const cycle = Math.floor((this.engine.elapsed + 8) / 80) * 80;
-        const distanceAt = (time) => 86 * time + 1.2 * time * time;
         return { near: distanceAt(cycle + 24) - this.engine.distance,
             far: distanceAt(cycle + 36) - this.engine.distance };
     }
@@ -2111,9 +2246,194 @@ class DeliveryDashGame {
             c.globalAlpha = 1;
             this.rect('#FFE08A', 0, 230 - sweepAge * 440, 240, 3);
         }
+        this.slotPanel();
         if (this.engine.state === 'crashed') {
             c.fillStyle = 'rgba(237,139,0,0.13)';
             c.fillRect(0, 0, 240, 230);
+        }
+    }
+    slotEntity(e) {
+        const p = this.project((e.lane - 1) * (260 / 3), e.z);
+        if (p.y > 265)
+            return;
+        const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
+        const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
+        const r = (color, dx, dy, w, h) => this.rect(color, p.x + dx * s, p.y + (dy + bob) * s, w * s, h * s);
+        c.globalAlpha = calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6);
+        c.fillStyle = '#FFD36B';
+        c.beginPath();
+        c.ellipse(Math.round(p.x), Math.round(p.y + (bob - 24) * s), 30 * s, 34 * s, 0, 0, Math.PI * 2);
+        c.fill();
+        c.globalAlpha = 1;
+        this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
+        r('#002855', -17, -46, 34, 46);
+        r('#C8102E', -15, -44, 30, 42);
+        r('#FFC13A', -15, -44, 30, 7);
+        for (let index = 0; index < 4; index++)
+            r(!calm && Math.floor(time * 6) % 2 === index % 2 ? '#FFFFFF' : '#E08A00', -11 + index * 7, -42, 3, 3);
+        r('#1B2A41', -13, -35, 26, 18);
+        ['#C8102E', '#ED8B00', '#2F7DD6'].forEach((color, index) => {
+            r('#FFF8E1', -12 + index * 8.5, -34, 7.5, 16);
+            r(color, -10.5 + index * 8.5, calm ? -28 : -30 + 4 * Math.sin(time * 9 + index * 2), 4.5, 5);
+        });
+        r('#7A4A00', -10, -13, 20, 7);
+        r('#FFD177', -8, -12, 16, 2);
+        r('#9AA5B1', 17, -36, 3, 16);
+        r('#E0307A', 16, -41, 5, 6);
+    }
+    /**
+     * The slot machine's panel for the pickup that started a spin. It hops in from the screen edge on whichever
+     * side has more verge, stays over the roadside, spins three reels while the truck keeps driving, then shows
+     * the payout or penalty and leaves. All of it runs on engine time, so a pause freezes it.
+     */
+    slotPanel() {
+        const spin = this.engine.slotSpin, state = this.engine.state;
+        if (!spin || state === 'ready' || state === 'crashed')
+            return;
+        const time = this.engine.elapsed, calm = this.motion.matches, c = this.ctx;
+        const { width, height, top, edge, reelWidth, reelHeight, reelPitch } = SLOT_PANEL;
+        const settledFor = spin.settledAt === null ? -1 : time - spin.settledAt;
+        const leaving = settledFor < 0 ? 0 : Math.min(1, Math.max(0, (settledFor - SLOT_RESULT_SECONDS) / SLOT_EXIT_SECONDS));
+        if (leaving >= 1 || (calm && leaving > 0))
+            return;
+        if (this.slotSpinKey !== spin.startedAt) {
+            this.slotSpinKey = spin.startedAt;
+            this.slotSide = this.roadCentre(0.3) > 120 ? -1 : 1;
+        }
+        const enter = Math.min(1, (time - spin.startedAt) / SLOT_ENTER_SECONDS);
+        const eased = calm ? 1 : 1 + 2.2 * Math.pow(enter - 1, 3) + 1.2 * Math.pow(enter - 1, 2);
+        const slide = calm ? 0 : (1 - eased + leaving) * (width + edge + 6);
+        const shake = !calm && (spin.outcome === 'loss' || spin.outcome === 'cursed') && settledFor >= 0 && settledFor < 0.4 ? Math.round(Math.sin(settledFor * 60) * 2) : 0;
+        const left = Math.round((this.slotSide < 0 ? edge - slide : 240 - width - edge + slide) + shake);
+        const winning = spin.amount > 0 && settledFor >= 0;
+        this.rect('#002855', left, top, width, height);
+        const cursed = spin.outcome === 'cursed' && settledFor >= 0;
+        this.rect(winning ? '#E8A400' : cursed ? '#14080A' : '#C8102E', left + 2, top + 2, width - 4, height - 4);
+        this.rect('#FFC13A', left + 2, top + 2, width - 4, 9);
+        for (let index = 0; index < 5; index++) {
+            const lit = winning ? Math.floor(time * 12) % 2 === index % 2 : !calm && Math.floor(time * 6) % 2 === index % 2;
+            this.rect(lit ? '#FFFFFF' : '#E08A00', left + 5 + index * 8, top + 5, 3, 3);
+        }
+        const reelsLeft = left + Math.round((width - (reelWidth * 3 + 3)) / 2), reelsTop = top + 15;
+        this.rect('#1B2A41', reelsLeft - 2, reelsTop - 2, reelWidth * 3 + 7, reelHeight + 4);
+        spin.reels.forEach((symbol, index) => {
+            const reelLeft = reelsLeft + index * (reelWidth + 1);
+            this.rect('#FFF8E1', reelLeft, reelsTop, reelWidth, reelHeight);
+            c.save();
+            c.beginPath();
+            c.rect(reelLeft, reelsTop, reelWidth, reelHeight);
+            c.clip();
+            const centre = reelLeft + reelWidth / 2, middle = reelsTop + reelHeight / 2;
+            if (time >= spin.stopAt[index]) {
+                const age = time - spin.stopAt[index];
+                this.slotSymbol(symbol, centre, middle + (calm ? 0 : Math.round(Math.sin(Math.min(age / 0.15, 1) * Math.PI) * 3)));
+            }
+            else if (calm)
+                this.rect('#C9BFA0', centre - 2, middle, 5, 2);
+            else {
+                const travelled = time * 70 + index * 23, base = Math.floor(travelled / reelPitch), fraction = travelled % reelPitch;
+                for (let row = -1; row <= 1; row++) {
+                    const cycleIndex = ((row - base) % SLOT_REEL_CYCLE.length + SLOT_REEL_CYCLE.length) % SLOT_REEL_CYCLE.length;
+                    this.slotSymbol(SLOT_REEL_CYCLE[cycleIndex], centre, middle + row * reelPitch + fraction);
+                }
+            }
+            this.rect('#0000002E', reelLeft, reelsTop, reelWidth, 4);
+            this.rect('#0000002E', reelLeft, reelsTop + reelHeight - 4, reelWidth, 4);
+            c.restore();
+        });
+        this.rect('#7A4A00', left + 10, top + height - 15, width - 20, 8);
+        this.rect('#FFD177', left + 12, top + height - 14, width - 24, 2);
+        this.rect('#FFC13A', left + 2, top + height - 5, width - 4, 3);
+        const leverLeft = this.slotSide < 0 ? left + width : left - 4;
+        const pull = Math.round(Math.sin(Math.min(1, (time - spin.startedAt) / 0.4) * Math.PI) * 10);
+        this.rect('#9AA5B1', leverLeft + 1, top + 20, 2, 14);
+        this.rect('#E0307A', leverLeft - 1, top + 13 + (calm ? 0 : pull), 6, 6);
+        if (settledFor < 0 || settledFor > SLOT_RESULT_SECONDS + SLOT_EXIT_SECONDS)
+            return;
+        if (spin.outcome === 'cursed') {
+            this.cursedBanner(spin.amount, settledFor, leaving, calm);
+            return;
+        }
+        const label = spin.amount > 0 ? `+${spin.amount}` : spin.amount < 0 ? `−${-spin.amount}` : 'NO LUCK';
+        const labelX = left + width / 2, labelY = top + height + 10;
+        c.font = 'bold 14px system-ui, sans-serif';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.lineJoin = 'round';
+        c.lineWidth = 4;
+        c.strokeStyle = '#002855';
+        c.strokeText(label, labelX, labelY);
+        c.fillStyle = spin.amount > 0 ? '#FFE08A' : spin.amount < 0 ? '#FF8A8A' : '#FFFFFF';
+        c.fillText(label, labelX, labelY);
+        c.textAlign = 'start';
+        c.textBaseline = 'alphabetic';
+        if (spin.outcome === 'jackpot' && !calm)
+            for (let index = 0; index < 8; index++) {
+                const angle = index * Math.PI / 4 + time * 2, radius = 30 + settledFor * 40;
+                c.globalAlpha = Math.max(0, 1 - settledFor / 1.2);
+                this.rect(index % 2 ? '#FFFFFF' : '#FFE08A', left + width / 2 + Math.cos(angle) * radius, top + height / 2 + Math.sin(angle) * radius, 3, 3);
+                c.globalAlpha = 1;
+            }
+    }
+    cursedBanner(amount, settledFor, leaving, calm) {
+        const c = this.ctx, centreX = DeliveryDashGame.W / 2, centreY = 112;
+        const pop = calm ? 1 : Math.min(1, settledFor / 0.2), scale = calm ? 1 : 1.5 - 0.5 * pop * pop * (3 - 2 * pop);
+        const shake = !calm && settledFor < 0.6 ? Math.round(Math.sin(settledFor * 70) * 2) : 0;
+        c.save();
+        c.globalAlpha = Math.min(1, settledFor / 0.1) * (1 - leaving);
+        c.fillStyle = '#000000CC';
+        c.fillRect(0, centreY - 34, DeliveryDashGame.W, 68);
+        c.fillStyle = '#C8102E';
+        c.fillRect(0, centreY - 34, DeliveryDashGame.W, 2);
+        c.fillRect(0, centreY + 32, DeliveryDashGame.W, 2);
+        c.translate(centreX + shake, centreY);
+        c.scale(scale, scale);
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.lineJoin = 'round';
+        c.font = 'bold 36px system-ui, sans-serif';
+        c.lineWidth = 7;
+        c.strokeStyle = '#000000';
+        c.strokeText('CURSED', 0, -9);
+        c.fillStyle = '#E3162F';
+        c.fillText('CURSED', 0, -9);
+        c.font = 'bold 22px system-ui, sans-serif';
+        c.lineWidth = 5;
+        c.strokeStyle = '#E3162F';
+        c.strokeText(`−${Math.abs(amount)}`, 0, 21);
+        c.fillStyle = '#000000';
+        c.fillText(`−${Math.abs(amount)}`, 0, 21);
+        c.restore();
+    }
+    slotSymbol(symbol, centreX, centreY) {
+        const r = (color, dx, dy, w, h) => this.rect(color, centreX + dx, centreY + dy, w, h);
+        if (symbol === 'seven') {
+            r('#C8102E', -4, -5, 9, 2);
+            this.polygon('#C8102E', [[centreX + 5, centreY - 3], [centreX + 2, centreY - 3], [centreX - 2, centreY + 5], [centreX + 1, centreY + 5]]);
+        }
+        else if (symbol === 'gift') {
+            r('#ED8B00', -4, -2, 9, 7);
+            r('#FFF2D9', -1, -2, 2, 7);
+            r('#FFF2D9', -4, 1, 9, 1);
+            r('#C25E00', -4, -5, 4, 3);
+            r('#C25E00', 1, -5, 4, 3);
+        }
+        else if (symbol === 'star') {
+            const points = [];
+            for (let index = 0; index < 10; index++) {
+                const angle = -Math.PI / 2 + index * Math.PI / 5, radius = index % 2 ? 2.4 : 5.5;
+                points.push([centreX + Math.cos(angle) * radius, centreY + Math.sin(angle) * radius]);
+            }
+            this.polygon('#FFB400', points);
+        }
+        else if (symbol === 'bell') {
+            r('#E08A00', -1, -6, 3, 2);
+            this.polygon('#FFC13A', [[centreX - 2, centreY - 4], [centreX + 2, centreY - 4], [centreX + 4, centreY + 2], [centreX + 5, centreY + 4], [centreX - 5, centreY + 4], [centreX - 4, centreY + 2]]);
+            r('#7A4A00', -1, 5, 3, 2);
+        }
+        else {
+            this.polygon('#2B2B33', [[centreX - 5, centreY + 3], [centreX - 4, centreY - 2], [centreX, centreY - 5], [centreX + 4, centreY - 3], [centreX + 5, centreY + 3], [centreX + 1, centreY + 5]]);
+            r('#6B6B78', -2, -3, 2, 2);
         }
     }
     speedStreaks() {
@@ -2346,6 +2666,10 @@ class DeliveryDashGame {
             this.powerpup(e);
             return;
         }
+        if (e.variant === 'slot') {
+            this.slotEntity(e);
+            return;
+        }
         if (e.kind === 'giftasaurus') {
             this.giftasaurus(e);
             return;
@@ -2564,6 +2888,10 @@ class DeliveryDashGame {
         }
         return { ...pose((low + high) / 2), unit, pivot: -130 - rest * unit };
     }
+    truckLean() {
+        const lane = (this.engine.lanePosition - 1) * (260 / 3), near = this.project(lane, 20), far = this.project(lane, 140);
+        return Math.max(-0.25, Math.min(0.25, 0.7 * (far.x - near.x) / (near.y - far.y)));
+    }
     drawTruck() {
         if (!this.truck)
             return;
@@ -2594,7 +2922,10 @@ class DeliveryDashGame {
                 this.rect('#FFFFFF', x + 2, top + height - 2, 2, Math.round(length * 0.35));
             }
         }
-        this.ctx.drawImage(this.truck, left, top, width, height);
+        const lean = this.truckLean(), sourceHeight = this.truck.naturalHeight, rowHeight = Math.max(1, Math.round(sourceHeight / height));
+        for (let row = 0; row < height; row++) {
+            this.ctx.drawImage(this.truck, 0, Math.min(sourceHeight - rowHeight, Math.floor(row * sourceHeight / height)), this.truck.naturalWidth, rowHeight, left + Math.round(lean * (height - row)), top + row, width, 1);
+        }
         this.ctx.globalAlpha = 1;
         this.logo.style.opacity = String(flicker);
         const calm = this.motion.matches, time = e.elapsed;
@@ -2642,7 +2973,7 @@ class DeliveryDashGame {
             this.rect('#596273', left + width - 8, top + height - 3 + tread, 4, 1);
         }
         const s = this.displayScale;
-        this.logo.style.left = `${(left + 7) * s}px`;
+        this.logo.style.left = `${(left + 7 + Math.round(lean * 30)) * s}px`;
         this.logo.style.top = `${(top + 34) * s}px`;
         this.logo.style.width = `${34 * s}px`;
         this.logo.style.visibility = 'visible';

@@ -1,9 +1,15 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
-import { BITE_REACH, DeliveryDashEngine, GameState, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS } from './delivery-dash.engine';
-import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG } from './delivery-dash.rewards';
+import { BITE_REACH, DeliveryDashEngine, distanceAt, GameState, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol } from './delivery-dash.engine';
+import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
+
+const SLOT_PANEL = { width: 46, height: 62, top: 66, edge: 3, reelWidth: 11, reelHeight: 26, reelPitch: 14 };
+const SLOT_ENTER_SECONDS = 0.25;
+const SLOT_RESULT_SECONDS = 1.1;
+const SLOT_EXIT_SECONDS = 0.3;
+const SLOT_REEL_CYCLE: readonly SlotSymbol[] = ['seven', 'gift', 'star', 'bell', 'coal'];
 
 /** Reusable canvas game host. No Angular or third-party dependency. */
 export class DeliveryDashGame {
@@ -35,6 +41,9 @@ export class DeliveryDashGame {
   private lastDeliveryAt = -100;
   private lastPowerpupAt = -100;
   private lastBonusGiftAt = -100;
+  private lastSlotAt = -100;
+  private slotSpinKey = -1;
+  private slotSide = 1;
   private lastChainBreakAt = -100;
   private lastMultiplier = 1;
   private streakFlashUntil = 0;
@@ -222,6 +231,7 @@ export class DeliveryDashGame {
     this.lastDeliveryAt = this.engine.lastDelivery?.at ?? -100;
     this.lastPowerpupAt = this.engine.lastPowerpupAt;
     this.lastBonusGiftAt = this.engine.lastBonusGift?.at ?? -100;
+    this.lastSlotAt = this.engine.lastSlotResult?.at ?? -100;
     this.lastChainBreakAt = this.engine.lastChainBreak?.at ?? -100;
     this.lastMultiplier = this.engine.multiplier;
     this.deliveryKey = '';
@@ -375,7 +385,7 @@ export class DeliveryDashGame {
     this.lastTime = now;
     if (this.engine.state === 'running') {
       this.engine.update(dt);
-      const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / 0.18);
+      const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / 0.45);
       this.cameraLane += (this.engine.lanePosition - this.cameraLane) * follow;
       if (this.engine.lastPowerpupAt > this.lastPowerpupAt) this.syncUI();
       if ((this.engine.state as GameState) === 'crashed') {
@@ -486,6 +496,13 @@ export class DeliveryDashGame {
       this.find('[data-live-status]').textContent = text;
     }
     this.lastBonusGiftAt = bonusGift?.at ?? -100;
+    const slotResult = engine.lastSlotResult;
+    if (slotResult && slotResult.at > this.lastSlotAt) {
+      const text = slotResult.amount ? `${SLOT_RESULT_TOASTS[slotResult.outcome]} ${slotResult.amount > 0 ? '+' : '−'}${Math.abs(slotResult.amount)}` : SLOT_RESULT_TOASTS[slotResult.outcome];
+      this.showToast(text);
+      this.find('[data-live-status]').textContent = text;
+    }
+    this.lastSlotAt = slotResult?.at ?? -100;
     if (engine.lastGainAt > this.lastGainAt && !this.toastLocked) {
       this.find('[data-toast]').textContent = `+${engine.lastGain}`;
       this.toastUntil = engine.elapsed + 0.85;
@@ -687,15 +704,14 @@ export class DeliveryDashGame {
     const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
     // Anchor the camera at the truck's contact depth. Curvature increases into
     // the distance; every lane, obstacle and roadside object uses this centre.
-    // Swing the vanishing point most of the way over the truck's lane once it
-    // settles, so the truck leans down its lane; the lag shows the turn mid-change.
-    const yaw = (this.cameraLane - 1) * (260 / 3) * 0.6 * (6 / 7 - depth);
+    // Nudge the vanishing point only slightly towards the truck's lane, and slowly, so the
+    // view never swings; the truck sprite is sheared to the lane direction instead (drawTruck).
+    const yaw = (this.cameraLane - 1) * (260 / 3) * 0.2 * (6 / 7 - depth);
     return 120 + bend * (Math.pow(1 - depth, 2) - Math.pow(1 - 6 / 7, 2)) + yaw;
   }
 
   private bridgeRange(): { near: number; far: number } {
     const cycle = Math.floor((this.engine.elapsed + 8) / 80) * 80;
-    const distanceAt = (time: number) => 86 * time + 1.2 * time * time;
     return { near: distanceAt(cycle + 24) - this.engine.distance,
       far: distanceAt(cycle + 36) - this.engine.distance };
   }
@@ -851,8 +867,145 @@ export class DeliveryDashGame {
       c.globalAlpha = 0.35 * (1 - sweepAge / 0.5); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 240, 230);
       c.globalAlpha = 1; this.rect('#FFE08A', 0, 230 - sweepAge * 440, 240, 3);
     }
+    this.slotPanel();
     if (this.engine.state === 'crashed') {
       c.fillStyle = 'rgba(237,139,0,0.13)'; c.fillRect(0, 0, 240, 230);
+    }
+  }
+
+  private slotEntity(e: RoadEntity): void {
+    const p = this.project((e.lane - 1) * (260 / 3), e.z);
+    if (p.y > 265) return;
+    const c = this.ctx, s = p.scale, time = this.engine.elapsed, calm = this.motion.matches;
+    const bob = calm ? 0 : Math.sin(time * 5 + e.id) * 2;
+    const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, p.x + dx * s, p.y + (dy + bob) * s, w * s, h * s);
+    c.globalAlpha = calm ? 0.3 : 0.24 + 0.1 * Math.sin(time * 6);
+    c.fillStyle = '#FFD36B'; c.beginPath();
+    c.ellipse(Math.round(p.x), Math.round(p.y + (bob - 24) * s), 30 * s, 34 * s, 0, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 1;
+    this.rect('#34424C', p.x - 22 * s, p.y - s, 44 * s, 4 * s);
+    r('#002855', -17, -46, 34, 46); r('#C8102E', -15, -44, 30, 42); r('#FFC13A', -15, -44, 30, 7);
+    for (let index = 0; index < 4; index++) r(!calm && Math.floor(time * 6) % 2 === index % 2 ? '#FFFFFF' : '#E08A00', -11 + index * 7, -42, 3, 3);
+    r('#1B2A41', -13, -35, 26, 18);
+    ['#C8102E', '#ED8B00', '#2F7DD6'].forEach((color, index) => {
+      r('#FFF8E1', -12 + index * 8.5, -34, 7.5, 16);
+      r(color, -10.5 + index * 8.5, calm ? -28 : -30 + 4 * Math.sin(time * 9 + index * 2), 4.5, 5);
+    });
+    r('#7A4A00', -10, -13, 20, 7); r('#FFD177', -8, -12, 16, 2);
+    r('#9AA5B1', 17, -36, 3, 16); r('#E0307A', 16, -41, 5, 6);
+  }
+
+  /**
+   * The slot machine's panel for the pickup that started a spin. It hops in from the screen edge on whichever
+   * side has more verge, stays over the roadside, spins three reels while the truck keeps driving, then shows
+   * the payout or penalty and leaves. All of it runs on engine time, so a pause freezes it.
+   */
+  private slotPanel(): void {
+    const spin = this.engine.slotSpin, state = this.engine.state;
+    if (!spin || state === 'ready' || state === 'crashed') return;
+    const time = this.engine.elapsed, calm = this.motion.matches, c = this.ctx;
+    const { width, height, top, edge, reelWidth, reelHeight, reelPitch } = SLOT_PANEL;
+    const settledFor = spin.settledAt === null ? -1 : time - spin.settledAt;
+    const leaving = settledFor < 0 ? 0 : Math.min(1, Math.max(0, (settledFor - SLOT_RESULT_SECONDS) / SLOT_EXIT_SECONDS));
+    if (leaving >= 1 || (calm && leaving > 0)) return;
+    if (this.slotSpinKey !== spin.startedAt) {
+      this.slotSpinKey = spin.startedAt;
+      this.slotSide = this.roadCentre(0.3) > 120 ? -1 : 1;
+    }
+    const enter = Math.min(1, (time - spin.startedAt) / SLOT_ENTER_SECONDS);
+    const eased = calm ? 1 : 1 + 2.2 * Math.pow(enter - 1, 3) + 1.2 * Math.pow(enter - 1, 2);
+    const slide = calm ? 0 : (1 - eased + leaving) * (width + edge + 6);
+    const shake = !calm && (spin.outcome === 'loss' || spin.outcome === 'cursed') && settledFor >= 0 && settledFor < 0.4 ? Math.round(Math.sin(settledFor * 60) * 2) : 0;
+    const left = Math.round((this.slotSide < 0 ? edge - slide : 240 - width - edge + slide) + shake);
+    const winning = spin.amount > 0 && settledFor >= 0;
+    this.rect('#002855', left, top, width, height);
+    const cursed = spin.outcome === 'cursed' && settledFor >= 0;
+    this.rect(winning ? '#E8A400' : cursed ? '#14080A' : '#C8102E', left + 2, top + 2, width - 4, height - 4);
+    this.rect('#FFC13A', left + 2, top + 2, width - 4, 9);
+    for (let index = 0; index < 5; index++) {
+      const lit = winning ? Math.floor(time * 12) % 2 === index % 2 : !calm && Math.floor(time * 6) % 2 === index % 2;
+      this.rect(lit ? '#FFFFFF' : '#E08A00', left + 5 + index * 8, top + 5, 3, 3);
+    }
+    const reelsLeft = left + Math.round((width - (reelWidth * 3 + 3)) / 2), reelsTop = top + 15;
+    this.rect('#1B2A41', reelsLeft - 2, reelsTop - 2, reelWidth * 3 + 7, reelHeight + 4);
+    spin.reels.forEach((symbol, index) => {
+      const reelLeft = reelsLeft + index * (reelWidth + 1);
+      this.rect('#FFF8E1', reelLeft, reelsTop, reelWidth, reelHeight);
+      c.save(); c.beginPath(); c.rect(reelLeft, reelsTop, reelWidth, reelHeight); c.clip();
+      const centre = reelLeft + reelWidth / 2, middle = reelsTop + reelHeight / 2;
+      if (time >= spin.stopAt[index]) {
+        const age = time - spin.stopAt[index];
+        this.slotSymbol(symbol, centre, middle + (calm ? 0 : Math.round(Math.sin(Math.min(age / 0.15, 1) * Math.PI) * 3)));
+      } else if (calm) this.rect('#C9BFA0', centre - 2, middle, 5, 2);
+      else {
+        const travelled = time * 70 + index * 23, base = Math.floor(travelled / reelPitch), fraction = travelled % reelPitch;
+        for (let row = -1; row <= 1; row++) {
+          const cycleIndex = ((row - base) % SLOT_REEL_CYCLE.length + SLOT_REEL_CYCLE.length) % SLOT_REEL_CYCLE.length;
+          this.slotSymbol(SLOT_REEL_CYCLE[cycleIndex], centre, middle + row * reelPitch + fraction);
+        }
+      }
+      this.rect('#0000002E', reelLeft, reelsTop, reelWidth, 4); this.rect('#0000002E', reelLeft, reelsTop + reelHeight - 4, reelWidth, 4);
+      c.restore();
+    });
+    this.rect('#7A4A00', left + 10, top + height - 15, width - 20, 8); this.rect('#FFD177', left + 12, top + height - 14, width - 24, 2);
+    this.rect('#FFC13A', left + 2, top + height - 5, width - 4, 3);
+    const leverLeft = this.slotSide < 0 ? left + width : left - 4;
+    const pull = Math.round(Math.sin(Math.min(1, (time - spin.startedAt) / 0.4) * Math.PI) * 10);
+    this.rect('#9AA5B1', leverLeft + 1, top + 20, 2, 14); this.rect('#E0307A', leverLeft - 1, top + 13 + (calm ? 0 : pull), 6, 6);
+    if (settledFor < 0 || settledFor > SLOT_RESULT_SECONDS + SLOT_EXIT_SECONDS) return;
+    if (spin.outcome === 'cursed') { this.cursedBanner(spin.amount, settledFor, leaving, calm); return; }
+    const label = spin.amount > 0 ? `+${spin.amount}` : spin.amount < 0 ? `−${-spin.amount}` : 'NO LUCK';
+    const labelX = left + width / 2, labelY = top + height + 10;
+    c.font = 'bold 14px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.lineWidth = 4;
+    c.strokeStyle = '#002855'; c.strokeText(label, labelX, labelY);
+    c.fillStyle = spin.amount > 0 ? '#FFE08A' : spin.amount < 0 ? '#FF8A8A' : '#FFFFFF'; c.fillText(label, labelX, labelY);
+    c.textAlign = 'start'; c.textBaseline = 'alphabetic';
+    if (spin.outcome === 'jackpot' && !calm) for (let index = 0; index < 8; index++) {
+      const angle = index * Math.PI / 4 + time * 2, radius = 30 + settledFor * 40;
+      c.globalAlpha = Math.max(0, 1 - settledFor / 1.2);
+      this.rect(index % 2 ? '#FFFFFF' : '#FFE08A', left + width / 2 + Math.cos(angle) * radius, top + height / 2 + Math.sin(angle) * radius, 3, 3);
+      c.globalAlpha = 1;
+    }
+  }
+
+  private cursedBanner(amount: number, settledFor: number, leaving: number, calm: boolean): void {
+    const c = this.ctx, centreX = DeliveryDashGame.W / 2, centreY = 112;
+    const pop = calm ? 1 : Math.min(1, settledFor / 0.2), scale = calm ? 1 : 1.5 - 0.5 * pop * pop * (3 - 2 * pop);
+    const shake = !calm && settledFor < 0.6 ? Math.round(Math.sin(settledFor * 70) * 2) : 0;
+    c.save();
+    c.globalAlpha = Math.min(1, settledFor / 0.1) * (1 - leaving);
+    c.fillStyle = '#000000CC'; c.fillRect(0, centreY - 34, DeliveryDashGame.W, 68);
+    c.fillStyle = '#C8102E'; c.fillRect(0, centreY - 34, DeliveryDashGame.W, 2); c.fillRect(0, centreY + 32, DeliveryDashGame.W, 2);
+    c.translate(centreX + shake, centreY); c.scale(scale, scale);
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    c.font = 'bold 36px system-ui, sans-serif'; c.lineWidth = 7;
+    c.strokeStyle = '#000000'; c.strokeText('CURSED', 0, -9); c.fillStyle = '#E3162F'; c.fillText('CURSED', 0, -9);
+    c.font = 'bold 22px system-ui, sans-serif'; c.lineWidth = 5;
+    c.strokeStyle = '#E3162F'; c.strokeText(`−${Math.abs(amount)}`, 0, 21); c.fillStyle = '#000000'; c.fillText(`−${Math.abs(amount)}`, 0, 21);
+    c.restore();
+  }
+
+  private slotSymbol(symbol: SlotSymbol, centreX: number, centreY: number): void {
+    const r = (color: string, dx: number, dy: number, w: number, h: number) => this.rect(color, centreX + dx, centreY + dy, w, h);
+    if (symbol === 'seven') {
+      r('#C8102E', -4, -5, 9, 2);
+      this.polygon('#C8102E', [[centreX + 5, centreY - 3], [centreX + 2, centreY - 3], [centreX - 2, centreY + 5], [centreX + 1, centreY + 5]]);
+    } else if (symbol === 'gift') {
+      r('#ED8B00', -4, -2, 9, 7); r('#FFF2D9', -1, -2, 2, 7); r('#FFF2D9', -4, 1, 9, 1); r('#C25E00', -4, -5, 4, 3); r('#C25E00', 1, -5, 4, 3);
+    } else if (symbol === 'star') {
+      const points: number[][] = [];
+      for (let index = 0; index < 10; index++) {
+        const angle = -Math.PI / 2 + index * Math.PI / 5, radius = index % 2 ? 2.4 : 5.5;
+        points.push([centreX + Math.cos(angle) * radius, centreY + Math.sin(angle) * radius]);
+      }
+      this.polygon('#FFB400', points);
+    } else if (symbol === 'bell') {
+      r('#E08A00', -1, -6, 3, 2);
+      this.polygon('#FFC13A', [[centreX - 2, centreY - 4], [centreX + 2, centreY - 4], [centreX + 4, centreY + 2], [centreX + 5, centreY + 4], [centreX - 5, centreY + 4], [centreX - 4, centreY + 2]]);
+      r('#7A4A00', -1, 5, 3, 2);
+    } else {
+      this.polygon('#2B2B33', [[centreX - 5, centreY + 3], [centreX - 4, centreY - 2], [centreX, centreY - 5], [centreX + 4, centreY - 3], [centreX + 5, centreY + 3], [centreX + 1, centreY + 5]]);
+      r('#6B6B78', -2, -3, 2, 2);
     }
   }
 
@@ -1033,6 +1186,7 @@ export class DeliveryDashGame {
     if (e.kind === 'shop') { this.shopEntity(e); return; }
     if (e.kind === 'delivery') { this.deliveryEntity(e); return; }
     if (e.kind === 'powerpup') { this.powerpup(e); return; }
+    if (e.variant === 'slot') { this.slotEntity(e); return; }
     if (e.kind === 'giftasaurus') { this.giftasaurus(e); return; }
     const p = this.project((e.lane - 1) * (260 / 3), e.z);
     if (p.y > 265) return;
@@ -1194,6 +1348,11 @@ export class DeliveryDashGame {
     return { ...pose((low + high) / 2), unit, pivot: -130 - rest * unit };
   }
 
+  private truckLean(): number {
+    const lane = (this.engine.lanePosition - 1) * (260 / 3), near = this.project(lane, 20), far = this.project(lane, 140);
+    return Math.max(-0.25, Math.min(0.25, 0.7 * (far.x - near.x) / (near.y - far.y)));
+  }
+
   private drawTruck(): void {
     if (!this.truck) return;
     const e = this.engine, p = this.project((e.lanePosition - 1) * (260 / 3), 20);
@@ -1223,7 +1382,10 @@ export class DeliveryDashGame {
         this.rect('#FFFFFF', x + 2, top + height - 2, 2, Math.round(length * 0.35));
       }
     }
-    this.ctx.drawImage(this.truck, left, top, width, height);
+    const lean = this.truckLean(), sourceHeight = this.truck.naturalHeight, rowHeight = Math.max(1, Math.round(sourceHeight / height));
+    for (let row = 0; row < height; row++) {
+      this.ctx.drawImage(this.truck, 0, Math.min(sourceHeight - rowHeight, Math.floor(row * sourceHeight / height)), this.truck.naturalWidth, rowHeight, left + Math.round(lean * (height - row)), top + row, width, 1);
+    }
     this.ctx.globalAlpha = 1;
     this.logo.style.opacity = String(flicker);
     const calm = this.motion.matches, time = e.elapsed;
@@ -1267,7 +1429,7 @@ export class DeliveryDashGame {
       this.rect('#596273', left + width - 8, top + height - 3 + tread, 4, 1);
     }
     const s = this.displayScale;
-    this.logo.style.left = `${(left + 7) * s}px`;
+    this.logo.style.left = `${(left + 7 + Math.round(lean * 30)) * s}px`;
     this.logo.style.top = `${(top + 34) * s}px`;
     this.logo.style.width = `${34 * s}px`;
     this.logo.style.visibility = 'visible';
