@@ -88,7 +88,7 @@
 .dash-secondary:hover { border-color: #002855; }
 .dash-howto { margin: 14px 0 0 !important; font-size: 11px !important; color: #7A8AA0 !important; }
 .dash-howto-touch { display: none; }
-@media (pointer: coarse) { .dash-howto-keys { display: none; } .dash-howto-touch { display: inline; } }
+.dash-touch .dash-howto-keys { display: none; } .dash-touch .dash-howto-touch { display: inline; }
 .delivery-dash:not([data-state="ready"]) .dash-howto { display: none; }
 
 .dash-submit { display: flex; gap: 6px; margin: 0 0 12px; }

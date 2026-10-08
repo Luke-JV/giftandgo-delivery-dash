@@ -62,6 +62,7 @@ export class DeliveryDashGame {
   private nativeFullscreen = false;
   private historyEntry = false;
   private swipeHintUntil = 0;
+  private touchInput = false;
   private swipesLearned = 0;
   private swipeKey = 'giftgo-delivery-dash-swipes-learned';
   private static readonly W = 240;
@@ -77,6 +78,8 @@ export class DeliveryDashGame {
     this.canvas.width = DeliveryDashGame.W; this.canvas.height = DeliveryDashGame.H;
     this.abort = new win.AbortController();
     this.motion = win.matchMedia('(prefers-reduced-motion: reduce)');
+    // Touchscreen laptops report (pointer: coarse) even when driven by mouse, so the last real pointer decides.
+    this.setTouchInput(!win.matchMedia('(any-pointer: fine)').matches);
     try {
       const stored = Number(win.localStorage.getItem('giftgo-delivery-dash-best-score'));
       if (Number.isFinite(stored)) this.best = Math.max(0, Math.floor(stored));
@@ -143,7 +146,7 @@ export class DeliveryDashGame {
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) listen(boostButton, type, () => this.engine.setBoost(false));
     listen(boostButton, 'contextmenu', event => event.preventDefault());
-    listen(root, 'pointerdown', event => this.pointerDown(event as PointerEvent));
+    listen(root, 'pointerdown', event => { this.setTouchInput((event as PointerEvent).pointerType !== 'mouse'); this.pointerDown(event as PointerEvent); });
     listen(root, 'pointerup', event => this.pointerUp(event as PointerEvent));
     listen(root, 'pointercancel', () => { this.swipeX = this.pointerId = null; });
     listen(root.ownerDocument, 'visibilitychange', () => this.visibility());
@@ -189,8 +192,8 @@ export class DeliveryDashGame {
   private startOrResume(): void {
     if (!this.ready || this.destroyed) return;
     this.boardOpen = false;
-    // Touch devices play fullscreen; the click is the user gesture requestFullscreen needs.
-    const touch = this.win.matchMedia('(pointer: coarse)').matches;
+    // Touch input plays fullscreen; the click is the user gesture requestFullscreen needs.
+    const touch = this.touchInput;
     if (!this.fullscreen && touch) this.enterFullscreen();
     if (this.engine.state === 'paused') this.engine.resume();
     else { this.engine.start(); this.swipeHintUntil = touch && this.swipesLearned !== 3 ? 6 : 0; this.runId = startRun().catch(() => null); this.idleTime = 0; this.cameraLane = 1; this.snappyUntil = 0; this.pendingResult = null; this.boardNote = ''; this.highlightId = 0; }
@@ -302,6 +305,11 @@ export class DeliveryDashGame {
     }
   }
 
+  private setTouchInput(touch: boolean): void {
+    this.touchInput = touch;
+    this.root.classList.toggle('dash-touch', touch);
+  }
+
   private pointerDown(e: PointerEvent): void {
     if (this.engine.state !== 'running' || (e.target as Element).closest('button, input')) return;
     this.swipeX = e.clientX; this.swipeY = e.clientY; this.pointerId = e.pointerId;
@@ -369,7 +377,8 @@ export class DeliveryDashGame {
         try { this.win.localStorage.setItem('giftgo-delivery-dash-best-score', String(this.best)); } catch {}
         this.onFinish(this.engine.result);
         this.pendingResult = this.engine.result.score >= MIN_SUBMIT_SCORE ? this.engine.result : null;
-        this.boardNote = ''; this.rankNote = ''; this.highlightId = 0; this.boardOpen = false;
+        this.boardNote = this.pendingResult ? '' : `Score ${MIN_SUBMIT_SCORE}+ points to join the leaderboard.`;
+        this.rankNote = ''; this.highlightId = 0; this.boardOpen = false;
         this.find('[data-live-status]').textContent = `Run finished. ${this.engine.result.score} points, ${distanceLabel(this.engine.distance)}, best multiplier ${this.engine.maxMultiplier}. Play again to restart.`;
         this.syncUI();
         if (!this.pendingResult) this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
@@ -474,7 +483,7 @@ export class DeliveryDashGame {
   private renderDelivery(): void {
     const engine = this.engine, request = engine.delivery;
     const banner = this.find<HTMLElement>('[data-delivery]');
-    const visible = !!request && request.phase !== 'expired' && (engine.state === 'running' || engine.state === 'paused');
+    const visible = !!request && (request.phase === 'incoming' || request.phase === 'active') &&(engine.state === 'running' || engine.state === 'paused');
     banner.hidden = !visible;
     if (!request || !visible) { this.deliveryKey = ''; return; }
     const arrow = request.lane === 0 ? '←' : '→';
@@ -643,9 +652,9 @@ export class DeliveryDashGame {
     const bend = 36 * Math.sin(time / 11) * (0.8 + 0.2 * Math.sin(time / 37));
     // Anchor the camera at the truck's contact depth. Curvature increases into
     // the distance; every lane, obstacle and roadside object uses this centre.
-    // Swing the vanishing point over the truck's lane once it settles, so the
-    // truck faces straight down its lane; the lag shows the turn mid-change.
-    const yaw = (this.cameraLane - 1) * (260 / 3) * (6 / 7 - depth);
+    // Swing the vanishing point most of the way over the truck's lane once it
+    // settles, so the truck leans down its lane; the lag shows the turn mid-change.
+    const yaw = (this.cameraLane - 1) * (260 / 3) * 0.6 * (6 / 7 - depth);
     return 120 + bend * (Math.pow(1 - depth, 2) - Math.pow(1 - 6 / 7, 2)) + yaw;
   }
 
