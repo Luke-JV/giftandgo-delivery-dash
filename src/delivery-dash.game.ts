@@ -287,7 +287,7 @@ export class DeliveryDashGame {
     return el;
   }
 
-  /** One tile per driver: portrait, name, tagline, stat bars and the rival they will meet. */
+  /** One tile per driver: portrait, name, stat bars and the rival they will meet. */
   private buildSelect(): void {
     const doc = this.root.ownerDocument;
     const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ''): HTMLElementTagNameMap[K] => {
@@ -314,7 +314,7 @@ export class DeliveryDashGame {
         value.setAttribute('aria-label', `${stat.value} out of ${STAT_MAX}, ${stat.note}`);
         stats.append(make('dt', '', stat.label), value);
       }
-      tile.append(portrait, make('span', 'dash-hero-name', character.name), make('span', 'dash-hero-tagline', character.tagline), stats,
+      tile.append(portrait, make('span', 'dash-hero-name', character.name), stats,
         make('span', 'dash-hero-rival', `${SELECT_COPY.rival} ${character.rivalName}`));
       return tile;
     }));
