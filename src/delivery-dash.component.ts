@@ -4,6 +4,8 @@ import {
 } from '@angular/core';
 import { DeliveryDashGame } from './delivery-dash.game';
 import { RunResult } from './delivery-dash.engine';
+import { DEFAULT_MUSIC_BASE } from './delivery-dash.music';
+import { DEFAULT_SFX_BASE } from './delivery-dash.sfx';
 
 @Component({
   selector: 'app-delivery-dash',
@@ -15,6 +17,9 @@ import { RunResult } from './delivery-dash.engine';
 })
 export class DeliveryDashComponent {
   readonly width = input(480, { transform: numberAttribute });
+  /** Where the soundtrack files are served from. */
+  readonly musicBase = input(DEFAULT_MUSIC_BASE);
+  readonly sfxBase = input(DEFAULT_SFX_BASE);
   readonly finished = output<RunResult>();
   readonly displayWidth = computed(() => Number.isFinite(this.width()) ? Math.max(240, this.width()) : 480);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -28,7 +33,7 @@ export class DeliveryDashComponent {
       const win = root?.ownerDocument.defaultView as (Window & typeof globalThis) | null;
       if (!root || !win) return;
       try {
-        this.game = new DeliveryDashGame(root, win, result => this.zone.run(() => this.finished.emit(result)));
+        this.game = new DeliveryDashGame(root, win, result => this.zone.run(() => this.finished.emit(result)), this.musicBase(), this.sfxBase());
       } catch {
         const title = root.querySelector('[data-overlay-title]');
         const message = root.querySelector('[data-overlay-message]');

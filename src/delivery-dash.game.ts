@@ -1,7 +1,9 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
 import { CHARACTERS, CHARACTER_IDS, CharacterId, isCharacterId, SELECT_COPY, STAT_MAX } from './delivery-dash.characters';
-import { BITE_REACH, DeliveryDashEngine, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
+import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
+import { DEFAULT_MUSIC_BASE, DEFAULT_VOLUME, DeliveryDashMusic } from './delivery-dash.music';
+import { DEFAULT_SFX_BASE, DEFAULT_SFX_VOLUME, DeliveryDashSfx } from './delivery-dash.sfx';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -23,10 +25,13 @@ const LANE_WIDTH = 260 / 3;
 const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 22, 5, 5]];
 /** Each oncoming rival's left and right indicators in sprite pixels and its drawn size, and how fast the indicators flash. */
 const RIVAL_LOOKS: Record<string, { lamps: readonly (readonly number[])[]; size: number }> = {
-  ferrari: { lamps: [[6, 43, 6, 4], [48, 43, 6, 4]], size: 1.25 },
-  vanFront: { lamps: [[7, 63, 5, 4], [50, 63, 5, 4]], size: 1.2 },
+  ferrari: { lamps: [[6, 43, 6, 4], [48, 43, 6, 4]], size: 1.5 },
+  vanFront: { lamps: [[7, 63, 5, 4], [50, 63, 5, 4]], size: 1.4 },
 };
 const RIVAL_SIGNAL_RATE = 9;
+/** Where the truck is on the road for sounds (the middle of the band where things hit it), and how long before an oncoming Ferrari gets there it honks. */
+const TRUCK_Z = 58;
+const HONK_LEAD_SECONDS = 0.3;
 const MAINTENANCE_BEACON: readonly (readonly number[])[] = [[28, 1, 6, 6]];
 const TUNNEL_HALF_WIDTH = 150;
 const TUNNEL_HEIGHT = 112;
@@ -38,6 +43,8 @@ const GLOW_SIGHT_SECONDS = 2.6;
 const GANTRY_SIGHT_SECONDS = 3.8;
 const GANTRY_HEIGHT = 92;
 const WINDSOCK_SIGHT_SECONDS = 6;
+/** How far down the scene, in screen pixels, the crosswind bar is drawn so the HUD never covers it. */
+const GUST_BAR_TOP_PX = 100;
 const GUST_WARNING_SECONDS = 3;
 interface SpriteBox { image: HTMLImageElement; x: number; y: number; w: number; h: number; scale: number; baseX: number; baseY: number; }
 interface RoadObject { z: number; over: boolean; draw: () => void; hazard?: boolean; glowLateral?: number; sight?: number; emit?: () => void; }
@@ -59,6 +66,8 @@ export class DeliveryDashGame {
   private readonly observer: ResizeObserver;
   private readonly intersection: IntersectionObserver;
   private readonly motion: MediaQueryList;
+  private readonly music: DeliveryDashMusic;
+  private readonly sfx: DeliveryDashSfx;
   private scenery: Record<string, HTMLImageElement> = {};
   private frame = 0;
   private lastTime = 0;
@@ -85,6 +94,7 @@ export class DeliveryDashGame {
   private slotSpinKey = -1;
   private slotSide = 1;
   private lastChainBreakAt = -100;
+  private honkedCar = -1;
   private lastMultiplier = 1;
   private streakFlashUntil = 0;
   private streakCallUntil = 0;
@@ -119,15 +129,17 @@ export class DeliveryDashGame {
   private historyEntry = false;
   private swipeHintUntil = 0;
   private touchInput = false;
+  private unmuteLevels: [number, number] | null = null;
   private swipesLearned = 0;
   private swipeKey = 'giftgo-delivery-dash-swipes-learned';
+  private thumbKey = 'giftgo-delivery-dash-thumb';
   private static readonly W = 240;
   private static readonly MIN_HEIGHT = 230;
   private static readonly MAX_HEIGHT = 560;
   private sceneHeight = DeliveryDashGame.MIN_HEIGHT;
 
   constructor(private readonly root: HTMLElement, private readonly win: GameWindow,
-    private readonly onFinish: (result: RunResult) => void = () => {}) {
+    private readonly onFinish: (result: RunResult) => void = () => {}, musicBase = DEFAULT_MUSIC_BASE, sfxBase = DEFAULT_SFX_BASE) {
     this.canvas = this.find<HTMLCanvasElement>('[data-game-canvas]');
     this.logo = this.find<HTMLImageElement>('[data-truck-logo]');
     const ctx = this.canvas.getContext('2d');
@@ -144,6 +156,7 @@ export class DeliveryDashGame {
       this.swipesLearned = Number(win.localStorage.getItem(this.swipeKey)) || 0;
       const driver = win.localStorage.getItem(this.driverKey);
       if (isCharacterId(driver)) this.engine.character = driver;
+      if (win.localStorage.getItem(this.thumbKey) === 'left') this.setThumb('left');
     } catch {}
     this.logo.src = DELIVERY_DASH_ASSETS.logo;
     this.find<HTMLImageElement>('[data-brand-logo]').src = DELIVERY_DASH_ASSETS.logo;
@@ -181,6 +194,32 @@ export class DeliveryDashGame {
     listen(this.find('[data-submit]'), 'submit', event => { event.preventDefault(); void this.submitRun(); });
     try { this.find<HTMLInputElement>('[data-nickname]').value = win.localStorage.getItem(this.nicknameKey) ?? ''; } catch {}
     listen(this.find('[data-action="fullscreen"]'), 'click', () => this.toggleFullscreen());
+    this.music = new DeliveryDashMusic(win, musicBase.endsWith('/') ? musicBase : `${musicBase}/`);
+    this.sfx = new DeliveryDashSfx(win, sfxBase.endsWith('/') ? sfxBase : `${sfxBase}/`);
+    const volumeButton = this.find<HTMLButtonElement>('[data-action="volume"]');
+    const volumePanel = this.find('[data-volume-panel]');
+    const volume = this.find<HTMLInputElement>('[data-volume]');
+    const showVolume = (open: boolean) => { volumePanel.hidden = !open; volumeButton.setAttribute('aria-expanded', String(open)); };
+    listen(volumeButton, 'click', () => { showVolume(volumePanel.hidden); if (!volumePanel.hidden) volume.focus({ preventScroll: true }); });
+    listen(volume, 'input', () => { this.music.unlock(); this.sfx.unlock(); this.music.setVolume(Number(volume.value) / 100); this.syncVolume(); });
+    const sfxVolume = this.find<HTMLInputElement>('[data-sfx-volume]');
+    // A chime on release previews the new level.
+    listen(sfxVolume, 'input', () => { this.sfx.unlock(); this.sfx.setVolume(Number(sfxVolume.value) / 100); this.syncVolume(); });
+    listen(sfxVolume, 'change', () => this.sfx.play('bonusPickup'));
+    listen(this.find('.dash-thumb-toggle'), 'click', event => {
+      const side = (event.target as Element).closest<HTMLElement>('[data-thumb]')?.dataset['thumb'];
+      if (side !== 'left' && side !== 'right') return;
+      this.setThumb(side);
+      try { win.localStorage.setItem(this.thumbKey, side); } catch {}
+    });
+    listen(volumePanel.parentElement!, 'keydown', event => {
+      if ((event as KeyboardEvent).key !== 'Escape' || volumePanel.hidden) return;
+      event.preventDefault(); event.stopPropagation(); showVolume(false); volumeButton.focus({ preventScroll: true });
+    });
+    listen(root.ownerDocument, 'pointerdown', event => {
+      if (!volumePanel.hidden && !volumePanel.parentElement!.contains(event.target as Node)) showVolume(false);
+    });
+    this.syncVolume();
     listen(root.ownerDocument, 'fullscreenchange', () => this.fullscreenChanged());
     listen(win, 'popstate', () => {
       if (!this.historyEntry) return;
@@ -197,12 +236,7 @@ export class DeliveryDashGame {
       this.afterRedeem();
       this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
     });
-    listen(this.find('[data-action="leave-shop"]'), 'click', () => {
-      this.engine.leaveShop(); this.shopNote = '';
-      this.syncEventMarkers(); this.lastTime = 0;
-      this.syncUI(); this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
-      this.draw(); this.schedule();
-    });
+    listen(this.find('[data-action="leave-shop"]'), 'click', () => this.leaveShop());
     listen(root, 'keydown', event => this.key(event as KeyboardEvent));
     listen(root, 'keyup', event => { if (['ArrowUp', 'w', 'W'].includes((event as KeyboardEvent).key)) this.engine.setBoost(false); });
     listen(win, 'blur', () => this.engine.setBoost(false));
@@ -315,6 +349,7 @@ export class DeliveryDashGame {
   private startOrResume(): void {
     if (!this.ready || this.destroyed) return;
     this.boardOpen = this.selectOpen = false;
+    this.music.unlock(); this.sfx.unlock();
     // Touch input plays fullscreen; the click is the user gesture requestFullscreen needs.
     const touch = this.touchInput;
     if (!this.fullscreen && touch) this.enterFullscreen();
@@ -360,14 +395,25 @@ export class DeliveryDashGame {
     this.syncUI(); this.draw(); this.schedule();
   }
 
+  private leaveShop(toast?: string): void {
+    this.engine.leaveShop(); this.shopNote = '';
+    this.syncEventMarkers(); this.lastTime = 0;
+    if (toast) this.showToast(toast);
+    this.syncUI(); this.find<HTMLButtonElement>('[data-action="pause"]').focus({ preventScroll: true });
+    this.draw(); this.schedule();
+  }
+
   private buy(item: ShopItem): void {
     const cashed = this.engine.freeplayValue;
     if (!this.engine.buy(item)) return;
-    this.shopNote = item === 'freeplay' ? `+${cashed} score!` : REWARD_CATALOG[item].toast;
+    // Freeplay cashes in every gift point, so there is nothing left to spend: drive straight back out.
+    if (item === 'freeplay') { this.leaveShop(`+${cashed} score!`); return; }
+    this.shopNote = REWARD_CATALOG[item].toast;
     this.afterRedeem();
     const focused = this.root.ownerDocument.activeElement;
     if (!(focused instanceof this.win.HTMLButtonElement) || focused.disabled) {
-      (this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
+      (this.root.querySelector<HTMLButtonElement>(`[data-reward="${item}"]:not(:disabled)`)
+        ?? this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
     }
   }
 
@@ -433,13 +479,58 @@ export class DeliveryDashGame {
     }
     const target = e.target as HTMLElement | null;
     if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+    if ((this.engine.state === 'shop' || this.engine.state === 'reward') && this.menuKey(e)) return;
     if (['ArrowUp', 'w', 'W'].includes(e.key)) { e.preventDefault(); this.engine.setBoost(true); return; }
     if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
       e.preventDefault();
       if (!e.repeat) this.engine.steer(['ArrowLeft', 'a', 'A'].includes(e.key) ? -1 : 1);
     } else if (['p', 'P', 'Escape'].includes(e.key)) {
       e.preventDefault(); if (!e.repeat) this.togglePause();
+    } else if (['m', 'M'].includes(e.key)) {
+      e.preventDefault(); if (!e.repeat) this.toggleMute();
+    } else if (['f', 'F'].includes(e.key)) {
+      e.preventDefault(); if (!e.repeat) this.toggleFullscreen();
     }
+  }
+
+  /**
+   * Shop and coupon menus: WASD or the arrows move between the buttons you can press (wrapping round,
+   * and including Back on the road), and Space presses the highlighted one. Returns false for other keys.
+   */
+  private menuKey(e: KeyboardEvent): boolean {
+    const back = ['ArrowUp', 'ArrowLeft', 'w', 'W', 'a', 'A'].includes(e.key);
+    const next = ['ArrowDown', 'ArrowRight', 's', 'S', 'd', 'D'].includes(e.key);
+    if (!back && !next && e.key !== ' ') return false;
+    e.preventDefault();
+    const buttons = [...this.root.querySelectorAll<HTMLButtonElement>('[data-reward]:not(:disabled), [data-action="leave-shop"]:not([hidden])')];
+    if (!buttons.length) return true;
+    const index = buttons.indexOf(this.root.ownerDocument.activeElement as HTMLButtonElement);
+    if (e.key === ' ') {
+      if (!e.repeat) (buttons[index] ?? buttons[0]).click();
+    } else {
+      const step = back ? -1 : 1;
+      buttons[index < 0 ? (back ? buttons.length - 1 : 0) : (index + step + buttons.length) % buttons.length].focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  /** Silences music and effects together, restoring the levels they had (or the defaults) on the next press. */
+  private toggleMute(): void {
+    this.music.unlock(); this.sfx.unlock();
+    if (this.music.volume || this.sfx.volume) {
+      this.unmuteLevels = [this.music.volume, this.sfx.volume];
+      this.music.setVolume(0); this.sfx.setVolume(0);
+    } else {
+      const [music, sfx] = this.unmuteLevels ?? [DEFAULT_VOLUME, DEFAULT_SFX_VOLUME];
+      this.music.setVolume(music); this.sfx.setVolume(sfx);
+    }
+    this.syncVolume();
+  }
+
+  /** Which corner the touch boost button sits in, for left- or right-thumbed players. */
+  private setThumb(side: 'left' | 'right'): void {
+    this.root.dataset['thumb'] = side;
+    for (const button of this.root.querySelectorAll<HTMLElement>('[data-thumb]')) button.setAttribute('aria-checked', String(button.dataset['thumb'] === side));
   }
 
   private setTouchInput(touch: boolean): void {
@@ -481,7 +572,51 @@ export class DeliveryDashGame {
       this.engine.pause(); this.engine.setBoost(false); this.lastTime = 0;
       if (this.frame) this.win.cancelAnimationFrame(this.frame);
       this.frame = 0; this.syncUI();
-    } else { this.lastTime = 0; this.schedule(); }
+    } else { this.lastTime = 0; this.syncMusic(); this.schedule(); }
+  }
+
+  /** What the engine last did, taken before an update so `playSounds` can tell what happened during it. */
+  private soundMarks() {
+    const e = this.engine;
+    return { pickup: e.lastPickupAt, bonus: e.lastBonusGift?.at ?? -100, delivery: e.lastDelivery?.at ?? -100, chainBreak: e.lastChainBreak?.at ?? -100, shields: e.shields, powerpup: e.lastPowerpupAt };
+  }
+
+  /** One sound per update, the most important event winning: a shield hit also breaks the streak, a coupon pauses the run. */
+  private playSounds(before: ReturnType<DeliveryDashGame['soundMarks']>): void {
+    const e = this.engine, state = e.state as GameState, delivery = e.lastDelivery;
+    if (state === 'crashed') this.sfx.play('crash');
+    else if (state === 'reward') this.sfx.play('coupon');
+    else if (e.shields < before.shields) this.sfx.play('shieldHit');
+    else if (e.lastPowerpupAt > before.powerpup) this.sfx.play('snappyDeath');
+    else if (delivery && delivery.at > before.delivery) this.sfx.play(delivery.success ? 'delivered' : 'setback');
+    else if ((e.lastChainBreak?.at ?? -100) > before.chainBreak) this.sfx.play('setback');
+    else if ((e.lastBonusGift?.at ?? -100) > before.bonus) this.sfx.play('bonusPickup');
+    else if (e.lastPickupAt > before.pickup) this.sfx.play('pickup');
+  }
+
+  /** The soundtrack plays through menus but stops while paused or when the page is hidden. */
+  private syncMusic(): void {
+    this.music.setPlaying(this.engine.state !== 'paused' && !this.root.ownerDocument.hidden);
+    this.syncCarSound();
+  }
+
+  /** The Ferrari's engine follows it down the road while the run is live, and it honks twice as it reaches the truck. */
+  private syncCarSound(): void {
+    const car = this.engine.state === 'running' ? this.engine.entities.find(e => e.kind === 'ferrari') : undefined;
+    if (!car) { this.sfx.setCar(null); return; }
+    const ahead = car.z - TRUCK_Z, arrival = ahead / (this.engine.speed * (1 + FERRARI_PACE));
+    this.sfx.setCar({ ahead, arrival, pan: (this.engine.ferrariLane(car) - this.engine.visualLane) * 0.6 });
+    if (car.id !== this.honkedCar && arrival < HONK_LEAD_SECONDS) { this.honkedCar = car.id; this.sfx.play('honk'); }
+  }
+
+  private syncVolume(): void {
+    const percent = Math.round(this.music.volume * 100), sfxPercent = Math.round(this.sfx.volume * 100);
+    this.find<HTMLInputElement>('[data-volume]').value = String(percent);
+    this.find('[data-volume-value]').textContent = `${percent}%`;
+    this.find<HTMLInputElement>('[data-sfx-volume]').value = String(sfxPercent);
+    this.find('[data-sfx-volume-value]').textContent = `${sfxPercent}%`;
+    this.find('[data-volume-waves]').style.visibility = percent || sfxPercent ? '' : 'hidden';
+    this.find('[data-action="volume"]').setAttribute('aria-label', `Volume: music ${percent ? `${percent}%` : 'muted'}, effects ${sfxPercent ? `${sfxPercent}%` : 'muted'}`);
   }
 
   /** Fullscreen fills the phone: the canvas takes the screen's aspect ratio, letterboxed only when it would get too wide. */
@@ -520,8 +655,10 @@ export class DeliveryDashGame {
     const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.05) : 0;
     this.lastTime = now;
     if (this.engine.state === 'running') {
-      const previousLane = this.engine.visualLane;
+      const previousLane = this.engine.visualLane, marks = this.soundMarks();
       this.engine.update(dt);
+      this.playSounds(marks);
+      this.syncCarSound();
       const follow = this.motion.matches ? 1 : 1 - Math.exp(-dt / CAMERA_FOLLOW_SECONDS);
       this.cameraLane += (this.engine.visualLane - this.cameraLane) * follow;
       const laneSpeed = dt > 0 ? (this.engine.visualLane - previousLane) / dt : 0;
@@ -544,7 +681,7 @@ export class DeliveryDashGame {
         this.shopNote = '';
         this.syncUI();
         this.find('[data-live-status]').textContent = 'Roadside shop. Spend gift points on upgrades for the rest of the run. The game is paused while you shop.';
-        this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)')?.focus({ preventScroll: true });
+        (this.root.querySelector<HTMLButtonElement>('[data-reward]:not(:disabled)') ?? this.find<HTMLButtonElement>('[data-action="leave-shop"]')).focus({ preventScroll: true });
       } else if ((this.engine.state as GameState) === 'reward') {
         this.syncUI();
         this.find('[data-live-status]').textContent = 'Coupon collected. Choose a free power-up to redeem. The game is paused while you choose.';
@@ -560,6 +697,7 @@ export class DeliveryDashGame {
   private syncUI(): void {
     const engine = this.engine, state = engine.state;
     this.root.dataset['state'] = state;
+    this.syncMusic();
     const boardVisible = this.boardOpen && (state === 'ready' || state === 'paused' || state === 'crashed');
     const selectVisible = this.selectOpen && !boardVisible && (state === 'ready' || state === 'crashed');
     this.root.dataset['boardOpen'] = String(boardVisible);
@@ -577,6 +715,8 @@ export class DeliveryDashGame {
     const progress = engine.chainProgress;
     this.find<HTMLElement>('[data-chain-fill]').style.width = `${progress ? Math.round(progress.have / progress.need * 100) : 100}%`;
     this.find('[data-points]').textContent = String(engine.giftPoints);
+    const seconds = Math.floor(engine.elapsed);
+    this.find('[data-timer]').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     this.renderDelivery();
     this.find<HTMLElement>('[data-overlay]').hidden = state === 'running';
     this.find<HTMLElement>('[data-main-card]').hidden = boardVisible || selectVisible;
@@ -613,8 +753,12 @@ export class DeliveryDashGame {
     boost.disabled = state !== 'running';
     boost.dataset['active'] = String(engine.boostLevel > 0.3);
     boost.dataset['locked'] = String(engine.boostLockedOut);
-    boost.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
-    this.find('[data-boost-label]').textContent = engine.boostLockedOut ? 'RECHARGING' : 'BOOST';
+    this.root.style.setProperty('--boost-fill', `${Math.round(engine.boostMeter * 100)}%`);
+    this.root.dataset['boostLocked'] = String(engine.boostLockedOut);
+    this.root.dataset['boostActive'] = String(engine.boostLevel > 0.3);
+    const boostLabel = engine.boostLockedOut ? 'RECHARGE' : 'BOOST';
+    this.find('[data-boost-label]').textContent = boostLabel;
+    this.find('[data-tube-label]').textContent = boostLabel;
     const remaining = (until: number) => Math.ceil(until - engine.elapsed);
     const perks: string[] = [];
     if (engine.shields) perks.push(`Shield ×${engine.shields}`);
@@ -1550,7 +1694,9 @@ export class DeliveryDashGame {
   private gustBar(): void {
     const state = this.gustState(), gust = this.engine.gust;
     if (!state || !gust) return;
-    const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, y = 24, height = 7;
+    // Sits a fixed distance down the screen, below the HUD pills, toast and delivery banner, however much the canvas is scaled.
+    const c = this.ctx, charge = this.gustCharge(), centre = DeliveryDashGame.W / 2, half = 56, height = 7;
+    const y = Math.round(GUST_BAR_TOP_PX / Math.max(1, this.displayScale));
     const peak = gust.swappedAt !== null && this.engine.elapsed - gust.swappedAt < 0.3;
     c.globalAlpha = 0.8; this.rect('#0B1B33', centre - half - 2, y - 2, half * 2 + 4, height + 4); c.globalAlpha = 1;
     this.rect('#27405F', centre - half, y, half * 2, height);
@@ -1880,5 +2026,7 @@ export class DeliveryDashGame {
     if (this.frame) this.win.cancelAnimationFrame(this.frame);
     this.frame = 0; this.abort.abort(); this.win.clearTimeout(this.searchTimer);
     this.observer.disconnect(); this.intersection.disconnect();
+    this.music.destroy();
+    this.sfx.destroy();
   }
 }
