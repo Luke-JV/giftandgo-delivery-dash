@@ -295,7 +295,6 @@
 .dash-hero-portrait { align-self: center; width: 96px; height: 96px; image-rendering: pixelated; border-radius: 10px; background: radial-gradient(circle at 50% 40%, #FFFFFF33, transparent 70%); }
 .dash-hero[aria-checked="true"] .dash-hero-portrait { background: radial-gradient(circle at 50% 40%, var(--accent), transparent 72%); }
 .dash-hero-name { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; text-align: center; }
-.dash-hero-tagline { min-height: 2.6em; font-size: 10.5px; line-height: 1.3; color: #C6D5E8; text-align: center; }
 .dash-hero-stats { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; margin: 0; }
 .dash-hero-stats dt { font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #FFC35B; }
 .dash-hero-stats dd { margin: 0; }
@@ -414,7 +413,6 @@ const STAT_MAX = 10;
 const CHARACTERS = {
     van: {
         name: 'GnG Van',
-        tagline: 'Built for parcels. Fears nothing. Except Joe.',
         portrait: 'portraitVan', sprite: 'truck', rival: 'ferrari', rivalName: 'Joe',
         accent: '#ED8B00',
         rules: { boostFactor: 1.6, nitroBase: 3, rechargeSeconds: 8, laneSeconds: 0.16, cargo: 1, startShields: 1 },
@@ -429,7 +427,6 @@ const CHARACTERS = {
     },
     joe: {
         name: 'Joe',
-        tagline: 'Wrong way. Right attitude. Sunglasses stay on.',
         portrait: 'portraitJoe', sprite: 'ferrariRear', rival: 'vanFront', rivalName: 'GnG Van',
         accent: '#D9381E',
         rules: { boostFactor: 1.7, nitroBase: 2, rechargeSeconds: 9, laneSeconds: 0.12, cargo: 0.5, startShields: 0 },
@@ -2330,7 +2327,7 @@ class DeliveryDashGame {
             throw new Error(`Missing game element: ${selector}`);
         return el;
     }
-    /** One tile per driver: portrait, name, tagline, stat bars and the rival they will meet. */
+    /** One tile per driver: portrait, name, stat bars and the rival they will meet. */
     buildSelect() {
         const doc = this.root.ownerDocument;
         const make = (tag, className, text = '') => {
@@ -2366,7 +2363,7 @@ class DeliveryDashGame {
                 value.setAttribute('aria-label', `${stat.value} out of ${STAT_MAX}, ${stat.note}`);
                 stats.append(make('dt', '', stat.label), value);
             }
-            tile.append(portrait, make('span', 'dash-hero-name', character.name), make('span', 'dash-hero-tagline', character.tagline), stats, make('span', 'dash-hero-rival', `${SELECT_COPY.rival} ${character.rivalName}`));
+            tile.append(portrait, make('span', 'dash-hero-name', character.name), stats, make('span', 'dash-hero-rival', `${SELECT_COPY.rival} ${character.rivalName}`));
             return tile;
         }));
     }

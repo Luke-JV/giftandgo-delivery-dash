@@ -26,7 +26,6 @@ export interface CharacterStat { label: string; value: number; note: string; }
 
 export interface CharacterDefinition {
   name: string;
-  tagline: string;
   /** Sprite keys in DELIVERY_DASH_ASSETS: the select portrait, the player sprite and the oncoming rival. */
   portrait: string;
   sprite: string;
@@ -43,7 +42,6 @@ export const STAT_MAX = 10;
 export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
   van: {
     name: 'GnG Van',
-    tagline: 'Built for parcels. Fears nothing. Except Joe.',
     portrait: 'portraitVan', sprite: 'truck', rival: 'ferrari', rivalName: 'Joe',
     accent: '#ED8B00',
     rules: { boostFactor: 1.6, nitroBase: 3, rechargeSeconds: 8, laneSeconds: 0.16, cargo: 1, startShields: 1 },
@@ -58,7 +56,6 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
   },
   joe: {
     name: 'Joe',
-    tagline: 'Wrong way. Right attitude. Sunglasses stay on.',
     portrait: 'portraitJoe', sprite: 'ferrariRear', rival: 'vanFront', rivalName: 'GnG Van',
     accent: '#D9381E',
     rules: { boostFactor: 1.7, nitroBase: 2, rechargeSeconds: 9, laneSeconds: 0.12, cargo: 0.5, startShields: 0 },
