@@ -1,3 +1,4 @@
+import { CHARACTERS, CharacterId, CharacterRules } from './delivery-dash.characters';
 export type GameState = 'ready' | 'running' | 'paused' | 'reward' | 'shop' | 'crashed';
 /** Coupons are free, short-lived power moments. */
 export type CouponReward = 'ghost' | 'jackpot' | 'rain';
@@ -251,10 +252,12 @@ export class DeliveryDashEngine {
   boostMeter = 1;
   boostLevel = 0;
   private boostLocked = false;
-  static readonly BOOST_FACTOR = 1.6;
+  /** The driver for the next run; `start` applies their rules. */
+  character: CharacterId = 'van';
+  get rules(): CharacterRules { return CHARACTERS[this.character].rules; }
   get magnet(): boolean { return this.magnetUntil > this.elapsed; }
   get boostActive(): boolean { return this.boostHeld && !this.boostLocked && this.boostMeter > 0; }
-  private get boostMultiplier(): number { return 1 + (DeliveryDashEngine.BOOST_FACTOR - 1) * this.boostLevel; }
+  private get boostMultiplier(): number { return 1 + (this.rules.boostFactor - 1) * this.boostLevel; }
   get pace(): number { return this.speed * this.boostMultiplier / SPEED_START; }
   private travelAfter(seconds: number): number { return distanceAt(this.elapsed + seconds) - distanceAt(this.elapsed); }
   /** Score multiplier for the current chain of route gifts. */
@@ -289,7 +292,7 @@ export class DeliveryDashEngine {
     this.offer = []; this.lastRedeemed = null; this.sweepAt = -100;
     this.lastPickupAt = this.couponPickedAt = -100; this.nextCouponAt = 16; this.nextShopAt = 26; this.shopsVisited = 0;
     this.pattern = 'single'; this.slalomDirection = 1; this.nextRoadworksAt = 30; this.previousClosed = '';
-    this.boostMeter = 1; this.boostLevel = 0; this.boostLocked = false;
+    this.boostMeter = 1; this.boostLevel = 0; this.boostLocked = false; this.shields = this.rules.startShields;
     this.lane = this.lanePosition = this.safeLane = 1;
     this.entities = [];
     this.crashLane = null;
@@ -381,7 +384,7 @@ export class DeliveryDashEngine {
   }
 
   /** Nitro tank capacity in seconds of boost. */
-  get nitroSeconds(): number { return 3 + this.nitroLevel; }
+  get nitroSeconds(): number { return this.rules.nitroBase + this.nitroLevel; }
 
   /** Every coupon reward, in a shuffled order. */
   private rollOffer(): CouponReward[] {
@@ -465,7 +468,7 @@ export class DeliveryDashEngine {
     const dt = Math.min(seconds, 0.05);
     // Boost drains a short nitro meter; once empty it must recharge before reuse.
     const boosting = this.boostActive;
-    this.boostMeter = Math.max(0, Math.min(1, this.boostMeter + (boosting ? -dt / this.nitroSeconds : dt / 8)));
+    this.boostMeter = Math.max(0, Math.min(1, this.boostMeter + (boosting ? -dt / this.nitroSeconds : dt / this.rules.rechargeSeconds)));
     if (this.boostMeter <= 0) this.boostLocked = true;
     else if (this.boostLocked && this.boostMeter >= 0.25) this.boostLocked = false;
     this.boostLevel = Math.max(0, Math.min(1, this.boostLevel + (boosting ? 1 : -1) * dt * 6));
@@ -473,7 +476,7 @@ export class DeliveryDashEngine {
     this.elapsed += dt;
     this.distance += travel;
     const fromLane = this.lanePosition, delta = this.lane - fromLane;
-    this.lanePosition += Math.sign(delta) * Math.min(Math.abs(delta), dt / 0.16);
+    this.lanePosition += Math.sign(delta) * Math.min(Math.abs(delta), dt / this.rules.laneSeconds);
     for (const e of this.entities) {
       const previousZ = e.z, length = e.length ?? 0;
       // An oncoming car closes on the truck by its own speed as well as the road's.
@@ -485,7 +488,7 @@ export class DeliveryDashEngine {
       // A roadworks closure overlaps for its whole length, so steering into it crashes.
       const enter = Math.max(0, (previousZ - 68) / moved);
       const leave = Math.min(1, (previousZ + length - 48) / moved);
-      const laneAt = (fraction: number) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / 0.16);
+      const laneAt = (fraction: number) => fromLane + Math.sign(delta) * Math.min(Math.abs(delta), dt * fraction / this.rules.laneSeconds);
       const a = laneAt(enter), b = laneAt(leave);
       // The Dustbuster reaches gifts one lane either side of the truck.
       const reach = e.kind === 'gift' && this.magnet ? MAGNET_REACH_LANES + 0.43 : 0.43;
@@ -507,7 +510,7 @@ export class DeliveryDashEngine {
       } else if (e.kind === 'gift') {
         const points = this.pointsPerGift * this.giftMultiplier(e.variant);
         this.gifts++;
-        this.giftPoints += points; this.pointsEarned += points;
+        this.giftPoints += Math.round(points * this.rules.cargo); this.pointsEarned += points;
         this.lastPickupAt = this.elapsed;
         this.extendChain(1);
         this.addScore(points * this.multiplier);
@@ -578,7 +581,7 @@ export class DeliveryDashEngine {
     let time = 0, travelled = 0;
     while (travelled < z - 68 && time < 30) {
       time += 0.02;
-      travelled += speedAt(this.elapsed + time) * 0.02 * (time <= boostSeconds ? DeliveryDashEngine.BOOST_FACTOR : 1);
+      travelled += speedAt(this.elapsed + time) * 0.02 * (time <= boostSeconds ? this.rules.boostFactor : 1);
     }
     return time;
   }
@@ -746,7 +749,7 @@ export class DeliveryDashEngine {
       if (bridge.start === this.gustPlannedFor || bridge.start - this.distance > this.travelAfter(TUNNEL_LEAD_SECONDS) || this.entities.some(e => e.kind === 'roadworks')) return;
       this.gustPlannedFor = bridge.start;
       if (bridge.start <= this.distance) return;
-      const at = bridge.start + (bridge.end - bridge.start) * (0.4 + this.random() * 0.2), perSecond = this.speed * DeliveryDashEngine.BOOST_FACTOR * 1.15;
+      const at = bridge.start + (bridge.end - bridge.start) * (0.4 + this.random() * 0.2), perSecond = this.speed * this.rules.boostFactor * 1.15;
       this.gust = { at, direction: this.random() < 0.5 ? -1 : 1, startedAt: null, swappedAt: null, offset: 0, clearFrom: at - perSecond * 0.5, clearTo: at + perSecond * (GUST_BUILD_SECONDS + 1.2) };
       return;
     }

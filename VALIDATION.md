@@ -35,6 +35,15 @@ still died to ordinary hazards late on, as above), while an autopilot that steer
 A shield absorbed a ball hit and the run carried on. In the browser the left- and right-hand cranes, the swinging chain,
 the ball and its road shadow drew correctly as the crane approached, and the ball came down on the truck when it was in its lane.
 
+Oncoming Ferrari checks: 40 seeded 900-second runs of a route-following autopilot with Ghost Truck held on except while a Ferrari
+is on the road (so only it can end the run) saw 337 Ferraris, the first 65–137 seconds in (86 on average) and 62–232 seconds apart
+(102 on average, about 8 a run). Nothing but gifts was on the road at any point between a Ferrari and the truck, and its final lane
+was never the route lane. The autopilot never crashed on one at reaction delays of 0.1, 0.25 and 0.4 seconds. As controls, a truck that never steered crashed on 18 of 115,
+and a truck that chased the Ferrari's lane until it settled and only then reacted survived all 144 with a reaction delay of up to 0.8 seconds
+and crashed on 40 of 58 at 0.9, which is the worst case the one-second margin before arrival allows (boosting shortens it). In the browser the Ferrari,
+its flashing indicator, the headlight glow and the "Oncoming!" chip drew without console errors, with the route gift in a clear lane beside it.
+The sprite was generated with Codex from a reference photo, keyed from a flat background and downsampled to 59 pixels wide.
+
 Your actual Angular application’s build, CSP, global CSS and loading flow still
 need integration checks. The prototype does not call a loyalty or coupon-store
 API. Gift points and coupons are per-run game rewards.
