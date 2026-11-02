@@ -87,12 +87,22 @@
         <div class="dash-actions">
           <button class="dash-start" type="button" data-action="start" disabled>Start driving</button>
           <button class="dash-start" type="button" data-action="leave-shop" hidden>Back on the road</button>
+          <button class="dash-secondary" type="button" data-action="change-driver" hidden>Change driver</button>
           <button class="dash-secondary" type="button" data-action="open-board">Leaderboard</button>
         </div>
         <p class="dash-howto" data-howto>
           <span class="dash-howto-keys">← → steer · ↑ boost</span>
           <span class="dash-howto-touch">Swipe to steer · hold BOOST</span>
         </p>
+      </div>
+      <div class="dash-overlay-card dash-select-card" data-select-card hidden>
+        <span class="dash-eyebrow" data-select-eyebrow></span>
+        <h2 data-select-title></h2>
+        <div class="dash-select" data-select-list role="radiogroup"></div>
+        <div class="dash-actions">
+          <button class="dash-start" type="button" data-action="drive"></button>
+          <button class="dash-secondary" type="button" data-action="close-select"></button>
+        </div>
       </div>
       <div class="dash-overlay-card dash-board-card" data-board-card hidden>
         <h2>Leaderboard</h2>

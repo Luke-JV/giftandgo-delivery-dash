@@ -1,4 +1,5 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
+import { CHARACTERS, CHARACTER_IDS, CharacterId, isCharacterId, SELECT_COPY, STAT_MAX } from './delivery-dash.characters';
 import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
 import { DEFAULT_MUSIC_BASE, DEFAULT_VOLUME, DeliveryDashMusic } from './delivery-dash.music';
@@ -22,10 +23,12 @@ const TRUCK_LEAN_SETTLE_SECONDS = 0.08;
 const LANE_WIDTH = 260 / 3;
 /** Where the lamps sit in the embedded sprites, as [x, y, width, height] in sprite pixels. */
 const STALLED_CAR_LAMPS: readonly (readonly number[])[] = [[4, 22, 5, 5], [43, 22, 5, 5]];
-/** The Ferrari's left and right indicators in sprite pixels, and how fast they flash. */
-const FERRARI_LAMPS: readonly (readonly number[])[] = [[6, 43, 6, 4], [48, 43, 6, 4]];
-const FERRARI_SIGNAL_RATE = 9;
-const FERRARI_SIZE = 1.5;
+/** Each oncoming rival's left and right indicators in sprite pixels and its drawn size, and how fast the indicators flash. */
+const RIVAL_LOOKS: Record<string, { lamps: readonly (readonly number[])[]; size: number }> = {
+  ferrari: { lamps: [[6, 43, 6, 4], [48, 43, 6, 4]], size: 1.5 },
+  vanFront: { lamps: [[7, 63, 5, 4], [50, 63, 5, 4]], size: 1.4 },
+};
+const RIVAL_SIGNAL_RATE = 9;
 /** Where the truck is on the road for sounds (the middle of the band where things hit it), and how long before an oncoming Ferrari gets there it honks. */
 const TRUCK_Z = 58;
 const HONK_LEAD_SECONDS = 0.3;
@@ -65,7 +68,6 @@ export class DeliveryDashGame {
   private readonly motion: MediaQueryList;
   private readonly music: DeliveryDashMusic;
   private readonly sfx: DeliveryDashSfx;
-  private truck?: HTMLImageElement;
   private scenery: Record<string, HTMLImageElement> = {};
   private frame = 0;
   private lastTime = 0;
@@ -106,6 +108,8 @@ export class DeliveryDashGame {
   private boardNote = '';
   private rankNote = '';
   private boardOpen = false;
+  private selectOpen = false;
+  private driverKey = 'giftgo-delivery-dash-driver';
   private boardVersion: BoardVersion = 'v02';
   private boardLoading = false;
   private boardFailed = false;
@@ -150,13 +154,23 @@ export class DeliveryDashGame {
       const stored = Number(win.localStorage.getItem('giftgo-delivery-dash-best-score'));
       if (Number.isFinite(stored)) this.best = Math.max(0, Math.floor(stored));
       this.swipesLearned = Number(win.localStorage.getItem(this.swipeKey)) || 0;
+      const driver = win.localStorage.getItem(this.driverKey);
+      if (isCharacterId(driver)) this.engine.character = driver;
       if (win.localStorage.getItem(this.thumbKey) === 'left') this.setThumb('left');
     } catch {}
     this.logo.src = DELIVERY_DASH_ASSETS.logo;
     this.find<HTMLImageElement>('[data-brand-logo]').src = DELIVERY_DASH_ASSETS.logo;
     const signal = this.abort.signal;
     const listen = (target: EventTarget, type: string, fn: EventListener) => target.addEventListener(type, fn, { signal });
-    listen(this.find('[data-action="start"]'), 'click', () => this.startOrResume());
+    listen(this.find('[data-action="start"]'), 'click', () => this.engine.state === 'ready' ? this.openSelect() : this.startOrResume());
+    this.buildSelect();
+    listen(this.find('[data-select-list]'), 'click', event => {
+      const id = (event.target as Element).closest<HTMLElement>('[data-character]')?.dataset['character'];
+      if (isCharacterId(id)) this.chooseCharacter(id);
+    });
+    listen(this.find('[data-action="drive"]'), 'click', () => { this.selectOpen = false; this.startOrResume(); });
+    listen(this.find('[data-action="close-select"]'), 'click', () => this.closeSelect());
+    listen(this.find('[data-action="change-driver"]'), 'click', () => this.openSelect());
     listen(this.find('[data-action="pause"]'), 'click', () => this.togglePause());
     listen(this.find('[data-action="open-board"]'), 'click', () => {
       this.boardOpen = true; this.boardVersion = 'v02'; this.clearSearch(); this.syncUI(); void this.loadBoard(true);
@@ -256,7 +270,7 @@ export class DeliveryDashGame {
       .map(async ([key, source]) => [key, await load(source)] as const)).then(entries => {
       if (this.destroyed) return;
       this.scenery = Object.fromEntries(entries);
-      this.truck = this.scenery['truck']; this.ready = true;
+      this.ready = true;
       this.find<HTMLButtonElement>('[data-action="start"]').disabled = false;
       this.draw(); this.syncUI(); this.schedule();
     }).catch(() => {
@@ -273,6 +287,60 @@ export class DeliveryDashGame {
     return el;
   }
 
+  /** One tile per driver: portrait, name, tagline, stat bars and the rival they will meet. */
+  private buildSelect(): void {
+    const doc = this.root.ownerDocument;
+    const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ''): HTMLElementTagNameMap[K] => {
+      const element = doc.createElement(tag); element.className = className; element.textContent = text; return element;
+    };
+    this.find('[data-select-eyebrow]').textContent = SELECT_COPY.eyebrow;
+    this.find('[data-select-title]').textContent = SELECT_COPY.title;
+    this.find('[data-action="drive"]').textContent = SELECT_COPY.drive;
+    this.find('[data-action="close-select"]').textContent = SELECT_COPY.back;
+    this.find('[data-action="change-driver"]').textContent = SELECT_COPY.change;
+    this.find('[data-select-list]').setAttribute('aria-label', SELECT_COPY.title);
+    this.find('[data-select-list]').replaceChildren(...CHARACTER_IDS.map(id => {
+      const character = CHARACTERS[id], tile = make('button', 'dash-hero');
+      tile.type = 'button'; tile.dataset['character'] = id; tile.setAttribute('role', 'radio');
+      tile.style.setProperty('--accent', character.accent);
+      const portrait = make('img', 'dash-hero-portrait');
+      portrait.src = DELIVERY_DASH_ASSETS[character.portrait as keyof typeof DELIVERY_DASH_ASSETS]; portrait.alt = ''; portrait.width = portrait.height = 96;
+      const stats = make('dl', 'dash-hero-stats');
+      for (const stat of character.stats) {
+        const bar = make('span', 'dash-stat-bar'), fill = make('span', '');
+        fill.style.setProperty('--stat', `${stat.value / STAT_MAX * 100}%`);
+        bar.append(fill); bar.title = stat.note;
+        const value = make('dd', ''); value.append(bar);
+        value.setAttribute('aria-label', `${stat.value} out of ${STAT_MAX}, ${stat.note}`);
+        stats.append(make('dt', '', stat.label), value);
+      }
+      tile.append(portrait, make('span', 'dash-hero-name', character.name), make('span', 'dash-hero-tagline', character.tagline), stats,
+        make('span', 'dash-hero-rival', `${SELECT_COPY.rival} ${character.rivalName}`));
+      return tile;
+    }));
+  }
+
+  private openSelect(): void {
+    if (!this.ready || this.destroyed) return;
+    // Touch input plays fullscreen; opening the select screen is the user gesture requestFullscreen needs.
+    if (!this.fullscreen && this.touchInput) this.enterFullscreen();
+    this.selectOpen = true; this.boardOpen = false; this.syncUI();
+    this.find<HTMLButtonElement>(`[data-character="${this.engine.character}"]`).focus({ preventScroll: true });
+  }
+
+  private closeSelect(): void {
+    this.selectOpen = false; this.syncUI();
+    this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
+  }
+
+  private chooseCharacter(id: CharacterId): void {
+    if (this.engine.state !== 'ready' && this.engine.state !== 'crashed') return;
+    this.engine.character = id;
+    try { this.win.localStorage.setItem(this.driverKey, id); } catch {}
+    this.syncUI(); this.draw();
+    this.find<HTMLButtonElement>(`[data-character="${id}"]`).focus({ preventScroll: true });
+  }
+
   private closeBoard(): void {
     this.boardOpen = false; this.syncUI();
     this.find<HTMLButtonElement>('[data-action="start"]').focus({ preventScroll: true });
@@ -280,7 +348,7 @@ export class DeliveryDashGame {
 
   private startOrResume(): void {
     if (!this.ready || this.destroyed) return;
-    this.boardOpen = false;
+    this.boardOpen = this.selectOpen = false;
     this.music.unlock(); this.sfx.unlock();
     // Touch input plays fullscreen; the click is the user gesture requestFullscreen needs.
     const touch = this.touchInput;
@@ -394,6 +462,16 @@ export class DeliveryDashGame {
 
   private key(e: KeyboardEvent): void {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (this.selectOpen && this.engine.state !== 'running') {
+      const step = ['ArrowLeft', 'ArrowUp'].includes(e.key) ? -1 : ['ArrowRight', 'ArrowDown'].includes(e.key) ? 1 : 0;
+      if (e.key === 'Escape') { e.preventDefault(); this.closeSelect(); return; }
+      if (step) {
+        e.preventDefault();
+        const index = CHARACTER_IDS.indexOf(this.engine.character);
+        this.chooseCharacter(CHARACTER_IDS[(index + step + CHARACTER_IDS.length) % CHARACTER_IDS.length]);
+        return;
+      }
+    }
     if (e.key === 'Escape' && this.boardOpen) {
       e.preventDefault();
       if (this.find<HTMLInputElement>('[data-board-search]').value) { this.clearSearch(); void this.loadBoard(true); } else this.closeBoard();
@@ -621,7 +699,12 @@ export class DeliveryDashGame {
     this.root.dataset['state'] = state;
     this.syncMusic();
     const boardVisible = this.boardOpen && (state === 'ready' || state === 'paused' || state === 'crashed');
+    const selectVisible = this.selectOpen && !boardVisible && (state === 'ready' || state === 'crashed');
     this.root.dataset['boardOpen'] = String(boardVisible);
+    for (const tile of this.root.querySelectorAll<HTMLElement>('[data-character]')) {
+      const chosen = tile.dataset['character'] === engine.character;
+      tile.setAttribute('aria-checked', String(chosen)); tile.tabIndex = chosen ? 0 : -1;
+    }
     this.find('[data-score]').textContent = Math.floor(engine.score).toLocaleString('en-US');
     const multiplierLabel = this.find('[data-multiplier]');
     multiplierLabel.textContent = `×${engine.multiplier}`; multiplierLabel.dataset['tier'] = String(engine.multiplier);
@@ -636,7 +719,8 @@ export class DeliveryDashGame {
     this.find('[data-timer]').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     this.renderDelivery();
     this.find<HTMLElement>('[data-overlay]').hidden = state === 'running';
-    this.find<HTMLElement>('[data-main-card]').hidden = boardVisible;
+    this.find<HTMLElement>('[data-main-card]').hidden = boardVisible || selectVisible;
+    this.find<HTMLElement>('[data-select-card]').hidden = !selectVisible;
     this.find<HTMLElement>('[data-board-card]').hidden = !boardVisible;
     const special = state === 'reward' || state === 'shop';
     const eyebrow = this.find<HTMLElement>('[data-eyebrow]');
@@ -654,6 +738,7 @@ export class DeliveryDashGame {
     this.find<HTMLElement>('[data-rewards]').hidden = !special;
     this.find<HTMLElement>('[data-action="leave-shop"]').hidden = state !== 'shop';
     this.find<HTMLElement>('[data-action="open-board"]').hidden = special;
+    this.find<HTMLElement>('[data-action="change-driver"]').hidden = state !== 'crashed';
     this.renderOffer();
     this.renderBoard();
     const start = this.find<HTMLButtonElement>('[data-action="start"]');
@@ -1480,11 +1565,12 @@ export class DeliveryDashGame {
 
   private stalledCar(e: RoadEntity): void { this.drawSprite('stalledCar', (e.lane - 1) * LANE_WIDTH, e.z, { shadow: true }); }
 
-  /** The oncoming Ferrari, drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
+  /** The oncoming rival (Joe's Ferrari, or the van when Joe drives), drawn where its weave has taken it, with the indicator on the side of the lane it is about to move into flashing. */
   private ferrari(e: RoadEntity): void {
     const lane = this.engine.ferrariLane(e), lateral = (lane - 1) * LANE_WIDTH, signal = this.engine.ferrariSignal(e);
-    this.drawSprite('ferrari', lateral, e.z, { shadow: true, size: FERRARI_SIZE });
-    if (signal !== null) this.flashLamps('ferrari', lateral, e.z, [FERRARI_LAMPS[signal > lane ? 1 : 0]], 0, FERRARI_SIGNAL_RATE, FERRARI_SIZE);
+    const rival = CHARACTERS[this.engine.character].rival, look = RIVAL_LOOKS[rival];
+    this.drawSprite(rival, lateral, e.z, { shadow: true, size: look.size });
+    if (signal !== null) this.flashLamps(rival, lateral, e.z, [look.lamps[signal > lane ? 1 : 0]], 0, RIVAL_SIGNAL_RATE, look.size);
   }
 
   private maintenanceTruck(lateral: number, z: number): void { this.drawSprite('maintenanceTruck', lateral, z, { shadow: true }); }
@@ -1852,9 +1938,10 @@ export class DeliveryDashGame {
   }
 
   private drawTruck(): void {
-    if (!this.truck) return;
-    const e = this.engine, p = this.project((e.visualLane - 1) * (260 / 3), 20);
-    const width = 48, height = 73;
+    const e = this.engine, character = CHARACTERS[e.character], sprite = this.scenery[character.sprite];
+    if (!sprite) return;
+    const p = this.project((e.visualLane - 1) * (260 / 3), 20);
+    const width = sprite.naturalWidth, height = sprite.naturalHeight, van = e.character === 'van';
     const moving = e.state === 'running' || (e.state === 'ready' && !this.motion.matches);
     const bounce = moving && !this.motion.matches ? Math.round(Math.sin((e.elapsed + this.idleTime / 18) * 13) * 0.6) : 0;
     const left = Math.round(p.x - width / 2), top = Math.round(p.y - height + bounce);
@@ -1873,46 +1960,46 @@ export class DeliveryDashGame {
     this.ctx.globalAlpha = flicker;
     if (e.boostLevel > 0.1) {
       const flicker = 0.75 + 0.25 * Math.sin(e.elapsed * 60);
-      for (const x of [left + 7, left + width - 13]) {
+      for (const x of [left + Math.round(width * 0.15), left + width - 6 - Math.round(width * 0.15)]) {
         const length = Math.round((6 + 12 * e.boostLevel) * flicker);
         this.rect('#ED8B00', x, top + height - 2, 6, length);
         this.rect('#FFE08A', x + 1, top + height - 2, 4, Math.round(length * 0.65));
         this.rect('#FFFFFF', x + 2, top + height - 2, 2, Math.round(length * 0.35));
       }
     }
-    const lean = this.truckLean(), sourceHeight = this.truck.naturalHeight, rowHeight = Math.max(1, Math.round(sourceHeight / height));
+    const lean = this.truckLean();
     for (let row = 0; row < height; row++) {
-      this.ctx.drawImage(this.truck, 0, Math.min(sourceHeight - rowHeight, Math.floor(row * sourceHeight / height)), this.truck.naturalWidth, rowHeight, left + Math.round(lean * (height - row)), top + row, width, 1);
+      this.ctx.drawImage(sprite, 0, row, width, 1, left + Math.round(lean * (height - row)), top + row, width, 1);
     }
     this.ctx.globalAlpha = 1;
     this.logo.style.opacity = String(flicker);
-    const calm = this.motion.matches, time = e.elapsed;
+    const calm = this.motion.matches, time = e.elapsed, middle = top + Math.round(height * 0.52);
     if (e.shields > 0 || e.invulnerableUntil > e.elapsed) {
       this.ctx.globalAlpha = 0.14 + 0.04 * e.shields;
       this.ctx.fillStyle = '#8ED5DD'; this.ctx.beginPath();
-      this.ctx.ellipse(p.x, top + 38, 32, 44, 0, 0, Math.PI * 2); this.ctx.fill();
+      this.ctx.ellipse(p.x, middle, width / 2 + 8, height / 2 + 8, 0, 0, Math.PI * 2); this.ctx.fill();
       this.ctx.globalAlpha = 1;
       for (let i = 0; i < 18; i++) {
         const angle = i * Math.PI * 2 / 18;
-        this.rect(i % 3 ? '#8ED5DD' : '#D7F6EE', p.x + Math.cos(angle) * 29, top + 37 + Math.sin(angle) * 42, 2, 2);
+        this.rect(i % 3 ? '#8ED5DD' : '#D7F6EE', p.x + Math.cos(angle) * (width / 2 + 5), middle - 1 + Math.sin(angle) * (height / 2 + 6), 2, 2);
       }
       for (let i = 0; i < e.shields; i++) this.rect('#D7F6EE', p.x - 8 + i * 8, top - 6, 5, 5);
     }
     if (e.magnet && !calm) {
       for (let i = 0; i < 14; i++) {
         const angle = time * 3 + i * Math.PI * 2 / 14, reach = 58 + 4 * Math.sin(time * 4 + i);
-        this.rect(i % 2 ? '#FF6A4D' : '#FFD1C8', p.x + Math.cos(angle) * reach, top + 60 + Math.sin(angle) * 16, 3, 3);
+        this.rect(i % 2 ? '#FF6A4D' : '#FFD1C8', p.x + Math.cos(angle) * reach, top + height - 13 + Math.sin(angle) * 16, 3, 3);
       }
     }
     if (e.jackpotUntil > time && !calm) {
       for (let i = 0; i < 10; i++) {
         const age = (time * 1.8 + i * 0.37) % 1;
-        this.rect(i % 2 ? '#C58BFF' : '#FFE08A', p.x - 24 + ((i * 17) % 48), top + 66 - age * 70, 3, 3);
+        this.rect(i % 2 ? '#C58BFF' : '#FFE08A', p.x - 24 + ((i * 17) % 48), top + height - 7 - age * 70, 3, 3);
       }
     }
     if (ghost && !calm) for (let i = 0; i < 6; i++) {
       const age = (time * 1.4 + i * 0.17) % 1;
-      this.rect('#BFD0FF', p.x - 20 + ((i * 13) % 40), top + 70 + age * 20, 3, 4);
+      this.rect('#BFD0FF', p.x - 20 + ((i * 13) % 40), top + height - 3 + age * 20, 3, 4);
     }
     const pickupAge = e.elapsed - e.lastPickupAt;
     if (!this.motion.matches && pickupAge >= 0 && pickupAge < 0.4) {
@@ -1930,7 +2017,7 @@ export class DeliveryDashGame {
     this.logo.style.left = `${(left + 7 + Math.round(lean * 30)) * s}px`;
     this.logo.style.top = `${(top + 34) * s}px`;
     this.logo.style.width = `${34 * s}px`;
-    this.logo.style.visibility = 'visible';
+    this.logo.style.visibility = van ? 'visible' : 'hidden';
   }
 
   destroy(): void {

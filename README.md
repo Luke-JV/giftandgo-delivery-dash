@@ -8,7 +8,7 @@ scenery reuses the original loading animation’s trees, layered hills and cloud
 
 ## Use in Angular
 
-Copy the ten files in `src/` into `src/app/shared/delivery-dash/`, the five `.mp3` files in `assets/music/` and
+Copy the eleven files in `src/` into `src/app/shared/delivery-dash/`, the five `.mp3` files in `assets/music/` and
 `assets/sfx/ferrari-pass.mp3` into your app's served assets (by default the game loads them from `assets/music/` and
 `assets/sfx/`; see `musicBase` and `sfxBase`).
 Import the standalone `DeliveryDashComponent` in your page's `imports`.
@@ -46,6 +46,12 @@ success/error handling determine when the loading area is removed.
 ## Play
 
 - Start using the **Start driving** button.
+- **Start driving** opens the driver select screen. Pick the **GnG Van** or **Joe** in his silver Ferrari, then **Drive!**
+  The choice is remembered under `giftgo-delivery-dash-driver`; after a crash, **Change driver** reopens the screen.
+  Drivers differ (`delivery-dash.characters.ts`): the van boosts 1.6× from a 3s tank, refills in 8s, changes lane in 0.16s,
+  banks every gift point and starts with a shield. Joe boosts 1.7× from a 2s tank, refills in 9s, changes lane in 0.12s,
+  banks half the gift points for shops (score is unaffected) and has no shield. Both stay inside the v0.2 leaderboard's
+  distance ceiling. Swagger is cosmetic. When Joe drives, the rare oncoming car is the GnG Van instead of his Ferrari.
 - Arrow Left/Right or A/D changes one lane per key press.
 - The arrow buttons also work with mouse, touch, or keyboard.
 - Hold ↑ or W (or the **BOOST** button on touch) to go 1.6× faster. The nitro meter drains in about
@@ -126,6 +132,18 @@ never spent; gift points are a separate wallet for shops.
   changes when the truck arrives, so a boost can put it under the ball. A crane never shares a row with a hazard, a delivery
   waits for it to pass, and shields, Ghost Truck and Holiday Gift Shoppe (which removes it) work on it as on any other hazard.
   Art is in `assets/crane.png` and `assets/wrecking-ball.png`.
+- **Oncoming Ferrari.** Rare (the first 60–90 seconds in, then roughly every 60–100 seconds; it waits for a stretch of plain
+  road, so never in a tunnel, on the river crossing, with roadworks, a delivery or the gift shower). A silver soft-top
+  with a bobblehead driver in dark sunglasses comes down the road toward the truck at 1.8 times the road's own speed
+  (`FERRARI_PACE`), and changes lane three times on the way, each change about 0.7 seconds after the last (`FERRARI_SWAPS`).
+  Its amber indicator flashes on the side of the lane it is about to move into for about 0.35 seconds before it goes
+  (`FERRARI_SIGNAL_SECONDS`), and an "Oncoming!" chip shows while it is on the way. The road ahead of it is cleared first: from
+  the moment it is planned, rows carry only the route gift, in one fixed lane, until it has passed, so it never drives through
+  anything. **It always ends in a lane other than the route lane**, and its last change is finished about a second before
+  it reaches the truck at the normal pace, so there are always at least two lanes clear and the one with the route gift
+  is never where it ends up. Boosting brings its arrival forward, and shields, Ghost Truck and Holiday Gift Shoppe (which
+  removes it) work on it as on any other hazard. The tuning constants are `FERRARI_*` at the top of `delivery-dash.engine.ts`.
+  Art is in `assets/ferrari.png`.
 
 ## Tunnels and the river crossing
 
