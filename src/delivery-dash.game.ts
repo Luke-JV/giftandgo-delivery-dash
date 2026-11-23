@@ -5,7 +5,7 @@ import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SEC
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
 import { DEFAULT_MUSIC_BASE, DEFAULT_VOLUME, DeliveryDashMusic } from './delivery-dash.music';
 import { DEFAULT_SFX_BASE, DEFAULT_SFX_VOLUME, DeliveryDashSfx } from './delivery-dash.sfx';
-import { BAUBLE_COLOURS, FESTIVE_THEME, FestiveSetting, PINE_BAUBLES, PINE_STAR, resolveFestive, SeasonTheme, SLEIGH_CROSS_SECONDS, SLEIGH_FIRST_SECONDS, SLEIGH_GAP_SECONDS, SLEIGH_REVERSE_CHANCE, SNOW_FALL, SNOW_FLAKES, SNOW_SWAY, STANDARD_THEME } from './delivery-dash.season';
+import { BAUBLE_COLOURS, FESTIVE_DEFAULT, FESTIVE_THEME, FestiveSetting, PINE_BAUBLES, PINE_STAR, resolveFestive, SeasonTheme, SLEIGH_CROSS_SECONDS, SLEIGH_FIRST_SECONDS, SLEIGH_GAP_SECONDS, SLEIGH_REVERSE_CHANCE, SNOW_FALL, SNOW_FLAKES, SNOW_SWAY, STANDARD_THEME } from './delivery-dash.season';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -169,7 +169,7 @@ export class DeliveryDashGame {
 
   constructor(private readonly root: HTMLElement, private readonly win: GameWindow,
     private readonly onFinish: (result: RunResult) => void = () => {}, musicBase = DEFAULT_MUSIC_BASE, sfxBase = DEFAULT_SFX_BASE,
-    festive: FestiveSetting = 'auto') {
+    festive: FestiveSetting = FESTIVE_DEFAULT) {
     this.theme = resolveFestive(festive, win.location.search, new win.Date()) ? FESTIVE_THEME : STANDARD_THEME;
     this.assets = this.theme.festive ? { ...DELIVERY_DASH_ASSETS, ...FESTIVE_ASSETS } : DELIVERY_DASH_ASSETS;
     this.canvas = this.find<HTMLCanvasElement>('[data-game-canvas]');

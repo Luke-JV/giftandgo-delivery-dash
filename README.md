@@ -41,7 +41,7 @@ success/error handling determine when the loading area is removed.
 | `width` | Defaults to 480px. Sets the host width, with a minimum of 240px; CSS shrinks it to fit its parent. The inner game is capped at 480px. |
 | `musicBase` | Defaults to `assets/music/`. URL folder the soundtrack `.mp3` files are served from. |
 | `sfxBase` | Defaults to `assets/sfx/`. URL folder `ferrari-pass.mp3` is served from. If it is missing, a synthesised engine and horn play instead. |
-| `festive` | `'auto'` (default), `'on'` or `'off'`. Turns the festive event on or off; `auto` follows the calendar. See [Festive event](#festive-event). |
+| `festive` | `'auto'`, `'on'` or `'off'`; defaults to `FESTIVE_DEFAULT` (currently `'on'`). Turns the festive event on or off; `auto` follows the calendar. See [Festive event](#festive-event). |
 | `finished` | Emits `{ score, distance, gifts, giftPoints, coupons, spent, duration, maxMultiplier, deliveries, deliveriesMissed }` once when a run ends in a collision. Score and distance are rounded down to whole numbers (distance in metres). |
 
 ## Play
@@ -89,7 +89,9 @@ behind the wheel, and the van with reindeer antlers and roof lights (and a wreat
 sleigh and four reindeer cross the sky with a sparkle trail and a panning sleigh-bell jingle; one flyby in four runs the
 other way and drops a present behind the hills.
 
-- **Switching it:** the component's `festive` input is `'auto'`, `'on'` or `'off'`. A `?festive=on|off|auto` query
+- **Switching it:** the event is currently switched on by hand: `FESTIVE_DEFAULT` in `delivery-dash.season.ts` is `'on'`.
+  Set it to `'off'` to end the event, or `'auto'` to let the calendar decide, then rebuild the preview. A host page can
+  also pass the component's `festive` input (`'auto'`, `'on'` or `'off'`). A `?festive=on|off|auto` query
   parameter overrides it, which is handy for checking either look on a live build. The season dates and tuning live in
   `delivery-dash.season.ts` (`FESTIVE_START`, `FESTIVE_END`, `SLEIGH_*`, `SNOW_*`).
 - **Festive sprites:** `delivery-dash.festive-assets.ts` swaps the two portraits, the two player sprites and the tree atlas

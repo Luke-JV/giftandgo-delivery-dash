@@ -6,6 +6,12 @@ export type FestiveSetting = 'auto' | 'on' | 'off';
 export const FESTIVE_SETTINGS: readonly FestiveSetting[] = ['auto', 'on', 'off'];
 export const isFestiveSetting = (value: unknown): value is FestiveSetting => FESTIVE_SETTINGS.some(setting => setting === value);
 
+/**
+ * The setting used when the host page passes none: the manual switch for the event. It is forced `on` for the 2026 season;
+ * set it to `off` to end the event (or `auto` to let the calendar decide from then on). `?festive=` still overrides it.
+ */
+export const FESTIVE_DEFAULT: FestiveSetting = 'on';
+
 /** Query parameter that overrides the host page's setting, for checking either look on a live build. */
 export const FESTIVE_QUERY_PARAM = 'festive';
 /** The season runs from FESTIVE_START (inclusive) through to the end of FESTIVE_END, as [month 0-11, day]. */
