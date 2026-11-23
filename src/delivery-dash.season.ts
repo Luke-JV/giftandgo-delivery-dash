@@ -6,15 +6,26 @@ export type FestiveSetting = 'auto' | 'on' | 'off';
 export const FESTIVE_SETTINGS: readonly FestiveSetting[] = ['auto', 'on', 'off'];
 export const isFestiveSetting = (value: unknown): value is FestiveSetting => FESTIVE_SETTINGS.some(setting => setting === value);
 
+/** The setting used when the host page passes none. `?festive=` in the URL still overrides it. */
+export const FESTIVE_DEFAULT: FestiveSetting = 'auto';
+
 /** Query parameter that overrides the host page's setting, for checking either look on a live build. */
 export const FESTIVE_QUERY_PARAM = 'festive';
 /** The season runs from FESTIVE_START (inclusive) through to the end of FESTIVE_END, as [month 0-11, day]. */
 export const FESTIVE_START = [11, 1] as const;
 export const FESTIVE_END = [0, 6] as const;
+/**
+ * Seasons that start before FESTIVE_START, as [year, month 0-11, day]: from that day the event runs straight on into the
+ * usual season and ends with it on FESTIVE_END. The 2026 event started early, on 23 November.
+ */
+export const FESTIVE_EARLY_STARTS: readonly (readonly [number, number, number])[] = [[2026, 10, 23]];
+
+const inEarlyStart = (date: Date): boolean => FESTIVE_EARLY_STARTS.some(([year, month, day]) =>
+  date >= new Date(year, month, day) && date < new Date(year + 1, FESTIVE_END[0], FESTIVE_END[1] + 1));
 
 export const isFestiveDate = (date: Date): boolean => {
   const month = date.getMonth(), day = date.getDate();
-  return (month === FESTIVE_START[0] && day >= FESTIVE_START[1]) || (month === FESTIVE_END[0] && day <= FESTIVE_END[1]);
+  return (month === FESTIVE_START[0] && day >= FESTIVE_START[1]) || (month === FESTIVE_END[0] && day <= FESTIVE_END[1]) || inEarlyStart(date);
 };
 
 /** The query parameter wins over the host's setting; `auto` then asks the calendar. */
