@@ -31,6 +31,9 @@ const CAR_PASS_PEAK_AT = 2.8;
 const CAR_PASS_LEVEL = 0.5;
 /** The recording builds up by itself, so distance only quietens it once the car has gone by. */
 const CAR_PASS_RECEDE_DISTANCE = 120;
+/** Sleigh bells: loudest level as the sleigh passes overhead, and the gap between shakes. */
+const SLEIGH_BELL_LEVEL = 0.12;
+const SLEIGH_SHAKE_SECONDS = 0.34;
 
 interface EngineVoice {
   sources: AudioScheduledSourceNode[]; gain: GainNode; pan: StereoPannerNode | null; recorded: boolean;
@@ -46,6 +49,7 @@ export class DeliveryDashSfx {
   private _volume = DEFAULT_SFX_VOLUME;
   private engine: EngineVoice | null = null;
   private carPass: AudioBuffer | null = null;
+  private bells: GainNode | null = null;
 
   constructor(private readonly win: Window & typeof globalThis, private readonly base = DEFAULT_SFX_BASE) {
     try {
@@ -156,8 +160,40 @@ export class DeliveryDashSfx {
     voice.pan?.pan.setTargetAtTime(Math.max(-1, Math.min(1, car.pan)), now, 0.05);
   }
 
+  /**
+   * Sleigh bells for a festive flyby: shakes of high, inharmonic bell partials that swell as the sleigh passes overhead
+   * and pan across with it (`direction` 1 is left to right).
+   */
+  sleighBells(direction: 1 | -1, seconds: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || this._volume <= 0) return;
+    this.stopBells();
+    const { gain, pan } = this.voiceOutput(ctx), start = ctx.currentTime + 0.02;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(SLEIGH_BELL_LEVEL, start + seconds * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + seconds);
+    pan?.pan.setValueAtTime(-0.8 * direction, start);
+    pan?.pan.linearRampToValueAtTime(0.8 * direction, start + seconds);
+    for (let shake = start; shake < start + seconds - 0.2; shake += SLEIGH_SHAKE_SECONDS) {
+      for (let hit = 0; hit < 3; hit++) {
+        const pitch = 2400 + Math.random() * 900, at = shake + hit * 0.055 + Math.random() * 0.01;
+        [1, 2.76, 5.4].forEach((partial, index) => this.tone('sine', pitch * partial, pitch * partial, at, 0.14 - index * 0.03, 0.5 / (index + 1), gain));
+      }
+    }
+    this.bells = gain;
+  }
+
+  /** Fades out any sleigh bells still ringing, for a pause or a crash mid-flyby. */
+  stopBells(): void {
+    if (!this.bells || !this.ctx) return;
+    this.bells.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.bells.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.05);
+    this.bells = null;
+  }
+
   destroy(): void {
     this.stopEngine();
+    this.stopBells();
     void this.ctx?.close().catch(() => {});
     this.ctx = this.master = null;
   }
@@ -232,7 +268,7 @@ export class DeliveryDashSfx {
   }
 
   /** One oscillator note with a fast attack and an exponential decay, optionally gliding in pitch. */
-  private tone(wave: Wave, from: number, to: number, start: number, length: number, peak: number): void {
+  private tone(wave: Wave, from: number, to: number, start: number, length: number, peak: number, destination: AudioNode = this.master!): void {
     const ctx = this.ctx!, osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type = wave;
     osc.frequency.setValueAtTime(from, start);
@@ -240,7 +276,7 @@ export class DeliveryDashSfx {
     gain.gain.setValueAtTime(0.0001, start);
     gain.gain.exponentialRampToValueAtTime(peak, start + 0.005);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
-    osc.connect(gain).connect(this.master!);
+    osc.connect(gain).connect(destination);
     osc.start(start); osc.stop(start + length + 0.02);
   }
 

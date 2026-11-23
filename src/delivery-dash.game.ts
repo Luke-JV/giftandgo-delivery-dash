@@ -1,9 +1,11 @@
 import { DELIVERY_DASH_ASSETS } from './delivery-dash.assets';
+import { FESTIVE_ASSETS } from './delivery-dash.festive-assets';
 import { CHARACTERS, CHARACTER_IDS, CharacterId, isCharacterId, SELECT_COPY, STAT_MAX } from './delivery-dash.characters';
 import { BITE_REACH, DeliveryDashEngine, FERRARI_PACE, GameState, GUST_BUILD_SECONDS, isCouponReward, isShopItem, POWERPUP_BONUS, RoadEntity, RunResult, ShopItem, SHOP_ITEMS, SlotSymbol, nextBridge } from './delivery-dash.engine';
 import { GIFT_VARIANT_PALETTES, GIFT_VARIANT_TOASTS, PLAIN_GIFT_PALETTE, REWARD_CATALOG, SLOT_RESULT_TOASTS } from './delivery-dash.rewards';
 import { DEFAULT_MUSIC_BASE, DEFAULT_VOLUME, DeliveryDashMusic } from './delivery-dash.music';
 import { DEFAULT_SFX_BASE, DEFAULT_SFX_VOLUME, DeliveryDashSfx } from './delivery-dash.sfx';
+import { BAUBLE_COLOURS, FESTIVE_THEME, FestiveSetting, PINE_BAUBLES, PINE_STAR, resolveFestive, SeasonTheme, SLEIGH_CROSS_SECONDS, SLEIGH_FIRST_SECONDS, SLEIGH_GAP_SECONDS, SLEIGH_REVERSE_CHANCE, SNOW_FALL, SNOW_FLAKES, SNOW_SWAY, STANDARD_THEME } from './delivery-dash.season';
 import { BOARD_PAGE_SIZE, cleanNickname, BoardVersion, distanceLabel, fetchRank, fetchScores, formatScore, MIN_SUBMIT_SCORE, ScoreRow, startRun, submitScore } from './delivery-dash.leaderboard';
 
 type GameWindow = Window & typeof globalThis;
@@ -55,6 +57,23 @@ const CRANE_BALL_CENTRE = { x: 24.5, y: 33.5 };
 const CRANE_BALL_UNIT = 1.15;
 /** Chain length from the cable stub to the middle of the ball, in world units. */
 const CRANE_CHAIN = 110;
+/** A sleigh flyby: when it set off (sky time), which way it flies, how high, and whether it drops a present. */
+interface SleighFlight { start: number; direction: 1 | -1; height: number; drop: boolean; }
+/** Wind the snow drifts with during a bridge crosswind, in pixels a second, and how quickly it picks up and dies away. */
+const SNOW_GUST_DRIFT = 45;
+const SNOW_GUST_EASE_SECONDS = 0.6;
+/** Fresh snow, as RGB, for frosting the hills. */
+const SNOW_LIGHT: readonly number[] = [244, 247, 251];
+/** Snowmen replace one roadside tree in SNOWMAN_EVERY (the decor slot SNOWMAN_SLOT), drawn SNOWMAN_UNIT world units to a sprite pixel. */
+const SNOWMAN_EVERY = 7;
+const SNOWMAN_SLOT = 3;
+const SNOWMAN_UNIT = 1.4;
+/** The sleigh's runners fly this far down the scene (below the HUD, above the horizon), rising up to SLEIGH_ARC mid-crossing. */
+const SLEIGH_BASE_Y = 39;
+const SLEIGH_ARC = 4;
+const SLEIGH_HEIGHT_SPREAD = 3;
+/** How far above the bottom of the van sprite the logo on its doors starts, so a taller festive sprite keeps it in place. */
+const VAN_LOGO_FROM_BOTTOM = 39;
 
 /** Reusable canvas game host. No Angular or third-party dependency. */
 export class DeliveryDashGame {
@@ -69,6 +88,16 @@ export class DeliveryDashGame {
   private readonly music: DeliveryDashMusic;
   private readonly sfx: DeliveryDashSfx;
   private scenery: Record<string, HTMLImageElement> = {};
+  private readonly theme: SeasonTheme;
+  /** The sprites in use: the everyday set, with the festive versions swapped in while the festive theme is on. */
+  private readonly assets: Record<string, string>;
+  /** Snow-dusted copies of the hills and trees, made once the art loads when the festive theme is on. */
+  private frosted: Record<string, HTMLCanvasElement | undefined> = {};
+  private sleigh: SleighFlight | null = null;
+  private nextSleighAt = -1;
+  private lastSkyTime = 0;
+  private snowDrift = 0;
+  private snowWind = 0;
   private frame = 0;
   private lastTime = 0;
   private destroyed = false;
@@ -139,7 +168,10 @@ export class DeliveryDashGame {
   private sceneHeight = DeliveryDashGame.MIN_HEIGHT;
 
   constructor(private readonly root: HTMLElement, private readonly win: GameWindow,
-    private readonly onFinish: (result: RunResult) => void = () => {}, musicBase = DEFAULT_MUSIC_BASE, sfxBase = DEFAULT_SFX_BASE) {
+    private readonly onFinish: (result: RunResult) => void = () => {}, musicBase = DEFAULT_MUSIC_BASE, sfxBase = DEFAULT_SFX_BASE,
+    festive: FestiveSetting = 'auto') {
+    this.theme = resolveFestive(festive, win.location.search, new win.Date()) ? FESTIVE_THEME : STANDARD_THEME;
+    this.assets = this.theme.festive ? { ...DELIVERY_DASH_ASSETS, ...FESTIVE_ASSETS } : DELIVERY_DASH_ASSETS;
     this.canvas = this.find<HTMLCanvasElement>('[data-game-canvas]');
     this.logo = this.find<HTMLImageElement>('[data-truck-logo]');
     const ctx = this.canvas.getContext('2d');
@@ -266,10 +298,11 @@ export class DeliveryDashGame {
       const image = new win.Image();
       image.onload = () => resolve(image); image.onerror = reject; image.src = source;
     });
-    void Promise.all(Object.entries(DELIVERY_DASH_ASSETS).filter(([key]) => key !== 'logo')
+    void Promise.all(Object.entries(this.assets).filter(([key]) => key !== 'logo')
       .map(async ([key, source]) => [key, await load(source)] as const)).then(entries => {
       if (this.destroyed) return;
       this.scenery = Object.fromEntries(entries);
+      if (this.theme.festive) this.frosted = { hills: this.frost(this.scenery['hills'], 3, 0.45) };
       this.ready = true;
       this.find<HTMLButtonElement>('[data-action="start"]').disabled = false;
       this.draw(); this.syncUI(); this.schedule();
@@ -304,7 +337,7 @@ export class DeliveryDashGame {
       tile.type = 'button'; tile.dataset['character'] = id; tile.setAttribute('role', 'radio');
       tile.style.setProperty('--accent', character.accent);
       const portrait = make('img', 'dash-hero-portrait');
-      portrait.src = DELIVERY_DASH_ASSETS[character.portrait as keyof typeof DELIVERY_DASH_ASSETS]; portrait.alt = ''; portrait.width = portrait.height = 96;
+      portrait.src = this.assets[character.portrait]; portrait.alt = ''; portrait.width = portrait.height = 96;
       const stats = make('dl', 'dash-hero-stats');
       for (const stat of character.stats) {
         const bar = make('span', 'dash-stat-bar'), fill = make('span', '');
@@ -1066,13 +1099,14 @@ export class DeliveryDashGame {
       const x = (startX - skyTime * 0.65 + 600) % 300 - 30;
       c.drawImage(cloud, Math.round(x), y);
     }
-    const hills = this.scenery['hills'];
+    const hills = this.frosted['hills'] ?? this.scenery['hills'];
     if (hills) {
       c.globalAlpha = 0.65;
       c.drawImage(hills, -28, 25, 320, 40);
       c.globalAlpha = 1;
       c.drawImage(hills, -79, 36, 320, 35);
     }
+    this.drawSleigh(skyTime);
     // The original loader's detailed foliage forms a distant woodland layer.
     const trees = this.scenery['trees'];
     if (trees) {
@@ -1080,21 +1114,28 @@ export class DeliveryDashGame {
       for (let x = -30; x < 260; x += 100) c.drawImage(trees, x, 43, 100, 22);
       c.globalAlpha = 1;
     }
-    const grass = ['#A4B397', '#96AA84', '#899F73', '#7C9465', '#70875C'];
+    const theme = this.theme, grass = theme.grass;
     for (let y = 62; y < height; y++) this.rect(grass[Math.min(4, Math.floor((y - 62) / (34 * stretch)))], 0, y, 240, 1);
     const riverTop = Math.max(44, this.project(0, bridge.far).y);
     const riverBottom = Math.min(height, this.project(0, bridge.near).y);
     if (bridge.far > 0 && riverBottom > riverTop) {
-      const water = ['#A6C3C3', '#8CAFB9', '#709FAB', '#608C9B', '#537D90'];
+      const water = theme.water;
       for (let y = Math.ceil(riverTop); y < riverBottom; y++) {
         this.rect(water[Math.min(4, Math.floor((y - 44) / (38 * stretch)))], 0, y, 240, 1);
       }
-      if (riverBottom < height - 2) this.rect('#C7C6A3', 0, riverBottom, 240, 2);
+      if (riverBottom < height - 2) this.rect(theme.bank, 0, riverBottom, 240, 2);
       for (let i = 0; i < 34; i++) {
         const y = 48 + (i * 41) % Math.round(180 * stretch);
         if (y <= riverTop || y >= riverBottom) continue;
+        if (theme.festive) {
+          // The river is frozen: still cracks in the ice and the odd glint instead of moving ripples.
+          const x = (i * 73) % 250 - 5, glint = !this.motion.matches && Math.floor(skyTime * 1.5 + i * 0.7) % 7 === 0;
+          this.rect(theme.ripples[i % 2], x, y, 4 + (y - 40) / (20 * stretch), 1);
+          if (glint) this.rect('#FFFFFF', x + 1, y - 1, 1, 3);
+          continue;
+        }
         const x = ((i * 73 + skyTime * 3) % 260) - 10;
-        this.rect(i % 3 ? '#99BAC1' : '#BAD1CE', x, y, 5 + (y - 40) / (15 * stretch), 1);
+        this.rect(theme.ripples[i % 3 ? 0 : 1], x, y, 5 + (y - 40) / (15 * stretch), 1);
       }
     }
     // Patches and flowers sit on the same receding plane as the road.
@@ -1102,10 +1143,10 @@ export class DeliveryDashGame {
       const z = ((i * 37 - travel) % 1400 + 1400) % 1400;
       if (onBridge(z)) continue;
       const p = this.project((i % 2 ? -1 : 1) * (148 + (i * 29) % 380), z);
-      this.rect(i % 3 ? '#819A69' : '#A0AF7B', p.x, p.y, (7 + i % 9) * p.scale, 2 * p.scale);
+      this.rect(theme.patches[i % 3 ? 0 : 1], p.x, p.y, (7 + i % 9) * p.scale, 2 * p.scale);
       if (i % 9 === 0) {
-        this.rect('#C5CD91', p.x + 2 * p.scale, p.y - 3 * p.scale, p.scale, 4 * p.scale);
-        this.rect(i % 18 ? '#F1E6B0' : '#DDAC58', p.x + p.scale, p.y - 4 * p.scale, 3 * p.scale, p.scale);
+        this.rect(theme.stem, p.x + 2 * p.scale, p.y - 3 * p.scale, p.scale, 4 * p.scale);
+        this.rect(theme.flowers[i % 18 ? 0 : 1], p.x + p.scale, p.y - 4 * p.scale, 3 * p.scale, p.scale);
       }
     }
     const asphalt = ['#6B747B', '#646E77', '#5C6670', '#55606A', '#4E5963', '#48535F', '#424D59'];
@@ -1142,7 +1183,8 @@ export class DeliveryDashGame {
         this.rect('#596B52', p.x, p.y - 14 * p.scale, 2 * p.scale, 14 * p.scale);
         this.rect('#F4F0DD', p.x - 2 * p.scale, p.y - 16 * p.scale, 6 * p.scale, 7 * p.scale);
         this.rect('#ED8B00', p.x - p.scale, p.y - 15 * p.scale, 4 * p.scale, 2 * p.scale);
-      } else this.tree(p.x, p.y, p.scale, d.index % 3);
+      } else if (this.theme.festive && d.index % SNOWMAN_EVERY === SNOWMAN_SLOT) this.snowman(p.x, p.y, p.scale, d.side);
+      else this.tree(p.x, p.y, p.scale, d.index % 3);
       if (trees && !onBridge(d.z + 28)) {
         const bush = this.project(d.side * (146 + d.index % 3 * 7), d.z + 28);
         c.drawImage(trees, 77, 52, 42, 14, Math.round(bush.x - 18 * bush.scale), Math.round(bush.y - 10 * bush.scale), Math.max(1, Math.round(36 * bush.scale)), Math.max(1, Math.round(12 * bush.scale)));
@@ -1162,6 +1204,7 @@ export class DeliveryDashGame {
     this.speedStreaks();
     this.drawTruck();
     objects.filter(overTruck).forEach(o => this.drawLit(o));
+    this.snowfall(skyTime);
     const sweepAge = this.engine.elapsed - this.engine.sweepAt;
     if (sweepAge >= 0 && sweepAge < 0.5 && !this.motion.matches) {
       c.globalAlpha = 0.35 * (1 - sweepAge / 0.5); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, 240, height);
@@ -1328,9 +1371,164 @@ export class DeliveryDashGame {
     if (!image) return;
     // Atlas windows reuse the actual broadleaf, pine and spreading tree artwork.
     const [sx, sw, width, height] = [[24, 60, 90, 99], [126, 42, 67, 108], [222, 60, 94, 103]][variant];
-    this.rect('#586F49', x - 20 * scale, y, 42 * scale, 3 * scale);
-    this.ctx.drawImage(image, sx, 0, sw, 66, Math.round(x - width * scale / 2), Math.round(y - height * scale), Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+    this.rect(this.theme.treeShadow, x - 20 * scale, y, 42 * scale, 3 * scale);
+    const left = Math.round(x - width * scale / 2), top = Math.round(y - height * scale);
+    this.ctx.drawImage(image, sx, 0, sw, 66, left, top, Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+    if (this.theme.festive && variant === 1) this.decoratePine(left, top, width * scale / sw, height * scale / 66);
   }
+
+  /** A snowman beside the road, facing the traffic: it stands on the left verge as drawn and is mirrored on the right. */
+  private snowman(x: number, y: number, scale: number, side: number): void {
+    const image = this.scenery['snowman'];
+    if (!image) return;
+    const width = image.naturalWidth * SNOWMAN_UNIT * scale, height = image.naturalHeight * SNOWMAN_UNIT * scale;
+    this.rect(this.theme.treeShadow, x - width * 0.45, y, width * 0.9, 2 * scale);
+    const left = Math.round(x - width / 2), top = Math.round(y - height), drawnWidth = Math.max(1, Math.round(width)), drawnHeight = Math.max(1, Math.round(height));
+    if (side > 0) {
+      this.ctx.save(); this.ctx.translate(left + drawnWidth, top); this.ctx.scale(-1, 1);
+      this.ctx.drawImage(image, 0, 0, drawnWidth, drawnHeight); this.ctx.restore();
+    } else this.ctx.drawImage(image, left, top, drawnWidth, drawnHeight);
+  }
+
+  /** Baubles that twinkle in turn and a gold star, placed in the pine's own atlas pixels. */
+  private decoratePine(left: number, top: number, unitX: number, unitY: number): void {
+    const size = Math.max(1, Math.round(Math.min(unitX, unitY) * 1.6)), time = this.engine.elapsed + this.idleTime / 18;
+    PINE_BAUBLES.forEach(([baubleX, baubleY], index) => {
+      const lit = this.motion.matches || Math.floor(time * 2 + index * 0.45) % 3 !== 0;
+      this.rect(lit ? BAUBLE_COLOURS[index % BAUBLE_COLOURS.length] : '#5E6B5A', left + baubleX * unitX - size / 2, top + baubleY * unitY - size / 2, size, size);
+    });
+    const [starX, starY] = PINE_STAR, star = Math.max(1, Math.round(unitX * 2)), centreX = left + starX * unitX, centreY = top + starY * unitY;
+    this.rect('#FFD24A', centreX - star, centreY - star / 2, star * 2 + 1, Math.max(1, star / 2));
+    this.rect('#FFD24A', centreX - star / 4, centreY - star * 1.25, Math.max(1, star / 2), star * 2);
+  }
+
+  /** A copy of an image with snow on every upward-facing edge, `depth` pixels deep, and the rest lightened by `pale`. */
+  private frost(image: HTMLImageElement | undefined, depth: number, pale: number): HTMLCanvasElement | undefined {
+    if (!image) return undefined;
+    const canvas = this.root.ownerDocument.createElement('canvas'), width = image.naturalWidth, height = image.naturalHeight;
+    canvas.width = width; canvas.height = height;
+    const c = canvas.getContext('2d');
+    if (!c) return undefined;
+    c.drawImage(image, 0, 0);
+    const pixels = c.getImageData(0, 0, width, height), data = pixels.data;
+    for (let x = 0; x < width; x++) {
+      let cover = 0;
+      for (let y = 0; y < height; y++) {
+        const at = (y * width + x) * 4;
+        if (!data[at + 3]) { cover = 0; continue; }
+        if (y === 0 || !data[at - width * 4 + 3]) cover = depth;
+        const mix = cover > 0 ? 0.92 : pale;
+        for (let channel = 0; channel < 3; channel++) data[at + channel] = Math.round(data[at + channel] + (SNOW_LIGHT[channel] - data[at + channel]) * mix);
+        cover--;
+      }
+    }
+    c.putImageData(pixels, 0, 0);
+    return canvas;
+  }
+
+  /** Falling snow in three depths, drifting with a crosswind and hidden inside a tunnel. Reduced motion freezes it. */
+  private snowfall(skyTime: number): void {
+    if (!this.theme.festive) return;
+    const calm = this.motion.matches, gust = this.engine.gust, height = this.sceneHeight;
+    const step = Math.max(0, Math.min(0.1, skyTime - this.lastSkyTime));
+    const target = gust && gust.startedAt !== null ? gust.direction * SNOW_GUST_DRIFT : 0;
+    this.snowWind += (target - this.snowWind) * (1 - Math.exp(-step / SNOW_GUST_EASE_SECONDS));
+    this.snowDrift += this.snowWind * step;
+    this.lastSkyTime = skyTime;
+    const view = this.tunnelView;
+    const shade = view ? Math.min(1, Math.max(0, Math.min(1, (view.near - 20) / 40)) + Math.max(0, Math.min(1, -(view.far + 20) / 60))) : 1;
+    if (shade <= 0) return;
+    const time = calm ? 0 : skyTime, c = this.ctx;
+    c.globalAlpha = shade;
+    for (let index = 0; index < SNOW_FLAKES; index++) {
+      const depth = index % 3, fall = SNOW_FALL[0] + (SNOW_FALL[1] - SNOW_FALL[0]) * depth / 2, span = height + 4;
+      const y = ((index * 53.7 + fall * time) % span + span) % span - 2;
+      const sway = Math.sin(time * (0.7 + depth * 0.2) + index) * SNOW_SWAY;
+      const x = ((index * 97.3 + sway + this.snowDrift * (0.6 + depth * 0.2)) % 244 + 244) % 244 - 2, size = depth === 2 ? 2 : 1;
+      this.rect('#AEBBCD', x, y + 1, size, 1);
+      this.rect(depth ? '#FFFFFF' : '#E8EEF6', x, y, size, size);
+    }
+    c.globalAlpha = 1;
+  }
+
+  /** Starts, flies and retires the sleigh. Its timing is the renderer's own, so it never touches the run's random sequence. */
+  private sleighFlight(skyTime: number): SleighFlight | null {
+    const between = ([low, high]: readonly [number, number]) => low + Math.random() * (high - low);
+    const restarted = this.nextSleighAt < 0 || skyTime < this.nextSleighAt - SLEIGH_GAP_SECONDS[1] - 1 || (this.sleigh !== null && skyTime < this.sleigh.start);
+    if (restarted) {
+      this.sleigh = null; this.sfx.stopBells();
+      this.nextSleighAt = skyTime + between(SLEIGH_FIRST_SECONDS);
+    }
+    if (this.sleigh && skyTime - this.sleigh.start > SLEIGH_CROSS_SECONDS) {
+      this.sleigh = null;
+      this.nextSleighAt = skyTime + between(SLEIGH_GAP_SECONDS);
+    }
+    if (this.engine.state !== 'running') this.sfx.stopBells();
+    if (!this.sleigh && skyTime >= this.nextSleighAt) {
+      if (this.tunnelView) this.nextSleighAt = skyTime + 3;
+      else {
+        const reverse = Math.random() < SLEIGH_REVERSE_CHANCE;
+        this.sleigh = { start: skyTime, direction: reverse ? -1 : 1, height: Math.random() * SLEIGH_HEIGHT_SPREAD, drop: reverse };
+        if (this.engine.state === 'running') this.sfx.sleighBells(this.sleigh.direction, SLEIGH_CROSS_SECONDS);
+      }
+    }
+    return this.sleigh;
+  }
+
+  /** Reindeer pulling Santa across the sky, behind the hills, with a sparkle trail; some flights drop a present. */
+  private drawSleigh(skyTime: number): void {
+    if (!this.theme.festive || this.motion.matches) return;
+    const flight = this.sleighFlight(skyTime);
+    if (!flight) return;
+    const age = skyTime - flight.start, direction = flight.direction;
+    const across = (seconds: number) => {
+      const travel = -70 + seconds / SLEIGH_CROSS_SECONDS * 380;
+      return direction > 0 ? travel : 240 - travel;
+    };
+    const lift = (seconds: number) => SLEIGH_BASE_Y + flight.height - Math.sin(Math.min(1, Math.max(0, seconds / SLEIGH_CROSS_SECONDS)) * Math.PI) * SLEIGH_ARC + Math.sin(seconds * 3);
+    const originX = across(age), baseY = lift(age);
+    const paint = (color: string, localX: number, localY: number, w: number, h: number, bob = 0) =>
+      this.rect(color, originX + (direction > 0 ? localX : -localX - w), baseY + localY + bob, w, h);
+    for (let step = 1; step <= 9; step++) {
+      const then = age - step * 0.09;
+      if (then < 0) break;
+      this.ctx.globalAlpha = 0.85 * (1 - step / 10);
+      this.rect(step % 2 ? '#FFD24A' : '#FFFFFF', across(then) - direction * 2 + (step * 7) % 3 - 1, lift(then) - 3 + (step * 5) % 3, 1, 1);
+    }
+    this.ctx.globalAlpha = 1;
+    paint('#D9C27A', 13, -6, 35, 1);
+    for (let deer = 0; deer < 4; deer++) {
+      const bodyX = 18 + deer * 9, gallop = Math.floor(age * 10 + deer) % 2 === 1, bob = Math.round(Math.sin(age * 10 + deer) * 0.6);
+      paint('#8A5A35', bodyX, -7, 6, 3, bob);
+      paint('#8A5A35', bodyX + 5, -9, 2, 2, bob);
+      paint('#8A5A35', bodyX + 6, -10, 3, 2, bob);
+      paint('#5A3A22', bodyX + 6, -13, 1, 3, bob);
+      paint('#5A3A22', bodyX + 5, -12, 3, 1, bob);
+      paint('#F4F6FB', bodyX - 1, -7, 1, 1, bob);
+      paint('#5A3A22', bodyX + (gallop ? 0 : 1), -4, 1, 3, bob);
+      paint('#5A3A22', bodyX + (gallop ? 5 : 4), -4, 1, 3, bob);
+      if (deer === 3) paint('#FF3B30', bodyX + 9, -10, 1, 1, bob);
+    }
+    paint('#6B4A2B', 0, -10, 4, 4);
+    paint('#D9381E', 0, -6, 13, 5);
+    paint('#D9381E', 12, -8, 2, 3);
+    paint('#FFD24A', -1, 0, 16, 1);
+    paint('#FFD24A', 15, -2, 1, 2);
+    paint('#D9381E', 4, -11, 5, 5);
+    paint('#F2C9A0', 6, -13, 3, 2);
+    paint('#FFFFFF', 6, -11, 4, 2);
+    paint('#D9381E', 4, -15, 4, 2);
+    paint('#FFFFFF', 3, -15, 1, 1);
+    paint('#FFFFFF', 4, -13, 5, 1);
+    const dropAt = SLEIGH_CROSS_SECONDS * 0.45;
+    if (flight.drop && age > dropAt) {
+      const fall = age - dropAt, dropX = across(dropAt) + direction * 18 * fall, dropY = lift(dropAt) - 4 + 30 * fall * fall;
+      this.rect('#D9381E', dropX, dropY, 3, 3);
+      this.rect('#FFD24A', dropX + 1, dropY, 1, 3);
+      if (Math.floor(age * 8) % 2) this.rect('#FFFFFF', dropX - 1, dropY - 1, 1, 1);
+    }
+  }
+
 
   private shopEntity(e: RoadEntity): void {
     const c = this.ctx, side = e.lane === 0 ? -1 : 1, laneX = (e.lane - 1) * (260 / 3);
@@ -2015,7 +2213,7 @@ export class DeliveryDashGame {
     }
     const s = this.displayScale;
     this.logo.style.left = `${(left + 7 + Math.round(lean * 30)) * s}px`;
-    this.logo.style.top = `${(top + 34) * s}px`;
+    this.logo.style.top = `${(top + height - VAN_LOGO_FROM_BOTTOM) * s}px`;
     this.logo.style.width = `${34 * s}px`;
     this.logo.style.visibility = van ? 'visible' : 'hidden';
   }
