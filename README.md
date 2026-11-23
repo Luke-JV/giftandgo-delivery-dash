@@ -8,7 +8,7 @@ scenery reuses the original loading animation’s trees, layered hills and cloud
 
 ## Use in Angular
 
-Copy the eleven files in `src/` into `src/app/shared/delivery-dash/`, the five `.mp3` files in `assets/music/` and
+Copy the thirteen files in `src/` into `src/app/shared/delivery-dash/`, the five `.mp3` files in `assets/music/` and
 `assets/sfx/ferrari-pass.mp3` into your app's served assets (by default the game loads them from `assets/music/` and
 `assets/sfx/`; see `musicBase` and `sfxBase`).
 Import the standalone `DeliveryDashComponent` in your page's `imports`.
@@ -41,6 +41,7 @@ success/error handling determine when the loading area is removed.
 | `width` | Defaults to 480px. Sets the host width, with a minimum of 240px; CSS shrinks it to fit its parent. The inner game is capped at 480px. |
 | `musicBase` | Defaults to `assets/music/`. URL folder the soundtrack `.mp3` files are served from. |
 | `sfxBase` | Defaults to `assets/sfx/`. URL folder `ferrari-pass.mp3` is served from. If it is missing, a synthesised engine and horn play instead. |
+| `festive` | `'auto'` (default), `'on'` or `'off'`. Turns the festive event on or off; `auto` follows the calendar. See [Festive event](#festive-event). |
 | `finished` | Emits `{ score, distance, gifts, giftPoints, coupons, spent, duration, maxMultiplier, deliveries, deliveriesMissed }` once when a run ends in a collision. Score and distance are rounded down to whole numbers (distance in metres). |
 
 ## Play
@@ -78,6 +79,27 @@ success/error handling determine when the loading area is removed.
 - Distances are stored in whole metres and shown in km from 1,000m (`formatDistance` in `delivery-dash.leaderboard.ts`).
   The game still works when local storage is blocked; the best then lasts only
   for the current component instance. There is no server score or leaderboard.
+
+## Festive event
+
+From 1 December to 6 January (the player's local date) the game dresses for winter: falling snow that drifts with a
+bridge crosswind and stops in tunnels, snowy verges, snow-capped hills, snow-laden trees and bushes, snowmen in Santa hats and Gift&Go scarves along
+the verges (one roadside slot in seven), a frozen river, decorated pines with twinkling baubles and a star, and festive drivers: Joe in a Santa hat and beard on the select screen and in his hat
+behind the wheel, and the van with reindeer antlers and roof lights (and a wreath and red nose on its portrait). Every 25 to 45 seconds (first flyby 10 to 18 seconds in) Santa's
+sleigh and four reindeer cross the sky with a sparkle trail and a panning sleigh-bell jingle; one flyby in four runs the
+other way and drops a present behind the hills.
+
+- **Switching it:** the component's `festive` input is `'auto'`, `'on'` or `'off'`. A `?festive=on|off|auto` query
+  parameter overrides it, which is handy for checking either look on a live build. The season dates and tuning live in
+  `delivery-dash.season.ts` (`FESTIVE_START`, `FESTIVE_END`, `SLEIGH_*`, `SNOW_*`).
+- **Festive sprites:** `delivery-dash.festive-assets.ts` swaps the two portraits, the two player sprites and the tree atlas
+  by key and adds the snowman; the PNGs are in `assets/*-festive.png` and `assets/snowman.png`. All festive art has a dark
+  silhouette outline and blue-grey snow shading so it reads against the snowy ground. It was generated with Codex; the
+  in-game driver sprites keep the original pixels underneath the added hat and antlers.
+- **Cosmetic only:** nothing changes speed, spawns, hitboxes or score, so the leaderboard ceilings are unaffected. The
+  sleigh uses its own randomness, never the run's.
+- **Reduced motion:** snow is drawn still, the sleigh does not fly and the baubles stay lit.
+- **Off means off:** with the theme off, the scenery is drawn with exactly the everyday colours (`STANDARD_THEME`).
 
 ## Road trip
 
