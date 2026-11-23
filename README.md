@@ -82,14 +82,17 @@ success/error handling determine when the loading area is removed.
 
 ## Festive event
 
-From 1 December to 6 January (the player's local date) the game dresses for winter: falling snow that drifts with a
+From 1 December to 6 January (the player's local date; this season from 23 November) the game dresses for winter: falling snow that drifts with a
 bridge crosswind and stops in tunnels, snowy verges, snow-capped hills, snow-laden trees and bushes, snowmen in Santa hats and Gift&Go scarves along
 the verges (one roadside slot in seven), a frozen river, decorated pines with twinkling baubles and a star, and festive drivers: Joe in a Santa hat and beard on the select screen and in his hat
 behind the wheel, and the van with reindeer antlers and roof lights (and a wreath and red nose on its portrait). Every 25 to 45 seconds (first flyby 10 to 18 seconds in) Santa's
 sleigh and four reindeer cross the sky with a sparkle trail and a panning sleigh-bell jingle; one flyby in four runs the
 other way and drops a present behind the hills.
 
-- **Switching it:** the component's `festive` input is `'auto'`, `'on'` or `'off'`. A `?festive=on|off|auto` query
+- **Switching it:** by default (`FESTIVE_DEFAULT`, `'auto'`) it follows the calendar. `FESTIVE_EARLY_STARTS` lets a season
+  start early and run on until 6 January: the 2026 season started on 23 November and ends on 6 January 2027, and from
+  then on the event returns each 1 December. A host page can force it with the component's `festive` input (`'auto'`,
+  `'on'` or `'off'`). A `?festive=on|off|auto` query
   parameter overrides it, which is handy for checking either look on a live build. The season dates and tuning live in
   `delivery-dash.season.ts` (`FESTIVE_START`, `FESTIVE_END`, `SLEIGH_*`, `SNOW_*`).
 - **Festive sprites:** `delivery-dash.festive-assets.ts` swaps the two portraits, the two player sprites and the tree atlas

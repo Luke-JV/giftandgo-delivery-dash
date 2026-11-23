@@ -6,7 +6,7 @@ import { DeliveryDashGame } from './delivery-dash.game';
 import { RunResult } from './delivery-dash.engine';
 import { DEFAULT_MUSIC_BASE } from './delivery-dash.music';
 import { DEFAULT_SFX_BASE } from './delivery-dash.sfx';
-import { FestiveSetting } from './delivery-dash.season';
+import { FESTIVE_DEFAULT, FestiveSetting } from './delivery-dash.season';
 
 @Component({
   selector: 'app-delivery-dash',
@@ -22,7 +22,7 @@ export class DeliveryDashComponent {
   readonly musicBase = input(DEFAULT_MUSIC_BASE);
   readonly sfxBase = input(DEFAULT_SFX_BASE);
   /** Festive event: `auto` follows the calendar (1 Dec to 6 Jan), `on` and `off` force it. `?festive=` in the URL overrides it. */
-  readonly festive = input<FestiveSetting>('auto');
+  readonly festive = input<FestiveSetting>(FESTIVE_DEFAULT);
   readonly finished = output<RunResult>();
   readonly displayWidth = computed(() => Number.isFinite(this.width()) ? Math.max(240, this.width()) : 480);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
