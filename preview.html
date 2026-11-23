@@ -2050,19 +2050,22 @@ class DeliveryDashSfx {
 
 const FESTIVE_SETTINGS = ['auto', 'on', 'off'];
 const isFestiveSetting = (value) => FESTIVE_SETTINGS.some(setting => setting === value);
-/**
- * The setting used when the host page passes none: the manual switch for the event. It is forced `on` for the 2026 season;
- * set it to `off` to end the event (or `auto` to let the calendar decide from then on). `?festive=` still overrides it.
- */
-const FESTIVE_DEFAULT = 'on';
+/** The setting used when the host page passes none. `?festive=` in the URL still overrides it. */
+const FESTIVE_DEFAULT = 'auto';
 /** Query parameter that overrides the host page's setting, for checking either look on a live build. */
 const FESTIVE_QUERY_PARAM = 'festive';
 /** The season runs from FESTIVE_START (inclusive) through to the end of FESTIVE_END, as [month 0-11, day]. */
 const FESTIVE_START = [11, 1];
 const FESTIVE_END = [0, 6];
+/**
+ * Seasons that start before FESTIVE_START, as [year, month 0-11, day]: from that day the event runs straight on into the
+ * usual season and ends with it on FESTIVE_END. The 2026 event started early, on 23 November.
+ */
+const FESTIVE_EARLY_STARTS = [[2026, 10, 23]];
+const inEarlyStart = (date) => FESTIVE_EARLY_STARTS.some(([year, month, day]) => date >= new Date(year, month, day) && date < new Date(year + 1, FESTIVE_END[0], FESTIVE_END[1] + 1));
 const isFestiveDate = (date) => {
     const month = date.getMonth(), day = date.getDate();
-    return (month === FESTIVE_START[0] && day >= FESTIVE_START[1]) || (month === FESTIVE_END[0] && day <= FESTIVE_END[1]);
+    return (month === FESTIVE_START[0] && day >= FESTIVE_START[1]) || (month === FESTIVE_END[0] && day <= FESTIVE_END[1]) || inEarlyStart(date);
 };
 /** The query parameter wins over the host's setting; `auto` then asks the calendar. */
 const resolveFestive = (setting, search, date) => {
